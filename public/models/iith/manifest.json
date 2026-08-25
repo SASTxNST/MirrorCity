@@ -1,0 +1,46 @@
+{
+  "source": "IITH_LiDAR_ground_dataset_labelled_raw.zip",
+  "toolkit": "Open3D 0.19.0",
+  "label_definition": {
+    "ground": "red",
+    "non_ground": "green"
+  },
+  "models": [
+    {
+      "name": "iith-low-slope",
+      "vertices": 5308,
+      "triangles": 6953,
+      "source_points": 9364,
+      "glb": "available",
+      "capture": "slope_0",
+      "labelled_points": 18449,
+      "ground_points": 17732,
+      "non_ground_points": 717,
+      "fitted_grade_degrees": 0.54
+    },
+    {
+      "name": "iith-medium-slope",
+      "vertices": 5309,
+      "triangles": 6932,
+      "source_points": 9413,
+      "glb": "available",
+      "capture": "slope_5",
+      "labelled_points": 18449,
+      "ground_points": 17732,
+      "non_ground_points": 717,
+      "fitted_grade_degrees": 3.02
+    },
+    {
+      "name": "iith-high-slope",
+      "vertices": 5318,
+      "triangles": 6904,
+      "source_points": 9513,
+      "glb": "available",
+      "capture": "slope_10",
+      "labelled_points": 18449,
+      "ground_points": 17732,
+      "non_ground_points": 717,
+      "fitted_grade_degrees": 6.59
+    }
+  ]
+}

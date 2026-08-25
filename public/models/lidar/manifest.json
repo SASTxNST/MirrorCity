@@ -1,0 +1,31 @@
+{
+  "source": "SemanticKITTI-compatible project-example.zip",
+  "toolkit": "Open3D 0.19.0",
+  "frames": 10,
+  "registered_points": 1231246,
+  "models": [
+    {
+      "name": "road-terrain",
+      "vertices": 10951,
+      "triangles": 21374,
+      "source_points": 36143,
+      "glb": "available"
+    },
+    {
+      "name": "building-masses",
+      "vertices": 72,
+      "triangles": 108,
+      "source_points": 8901,
+      "glb": "available",
+      "objects": 9
+    },
+    {
+      "name": "street-assets",
+      "vertices": 1684,
+      "triangles": 3208,
+      "source_points": 49893,
+      "glb": "available",
+      "objects": 40
+    }
+  ]
+}

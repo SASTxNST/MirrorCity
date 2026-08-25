@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import ModelViewer from "./ModelViewer";
 
 type ScenarioKey = "sewer" | "flood" | "evacuation";
-type LayerKey = "buildings" | "sewer" | "power" | "mobility";
+type LayerKey = "buildings" | "sewer" | "power" | "mobility" | "sensors" | "construction";
 type ToolKey = "select" | "orbit" | "measure" | "line" | "area" | "building" | "asset";
 type LineKind = "sewer" | "power" | "water" | "road";
 type MapPoint = { x: number; y: number };
 type DrawnLine = { id: number; kind: LineKind; points: MapPoint[] };
 type DrawnArea = { id: number; points: MapPoint[] };
 type PlannedBuilding = { id: number; x: number; y: number; floors: number };
-type AssetDefinition = { id: string; name: string; category: string; code: string; description: string; size: string; tone: string };
-type PlacedAsset = { id: number; x: number; y: number; asset: AssetDefinition };
+type AssetDefinition = { id: string; name: string; category: string; code: string; description: string; size: string; tone: string; file?: string; format?: "OBJ" | "GLB"; preview?: string; stats?: Array<{ label: string; value: string }> };
+type PlacedAsset = { id: number; x: number; y: number; rotation: number; scale: number; asset: AssetDefinition };
 
 const buildings = [
   { id: 1, name: "Civic Hospital", type: "Critical facility", x: 17, y: 18, w: 86, d: 70, h: 92, tone: "teal" },
@@ -35,6 +36,9 @@ const scenarios = {
 };
 
 const assetLibrary: AssetDefinition[] = [
+  { id: "iith-low-slope", name: "IITH low-slope terrain", category: "IITH terrain", code: "I01", description: "6,953-triangle ground surface from slope_0 with a fitted 0.54° grade", size: "165 KB", tone: "teal", file: "/models/iith/iith-low-slope.glb", format: "GLB", preview: "/models/iith/iith-low-slope.png", stats: [{ label: "SOURCE", value: "slope_0" }, { label: "GROUND POINTS", value: "17,732" }, { label: "FITTED GRADE", value: "0.54°" }, { label: "TRIANGLES", value: "6,953" }] },
+  { id: "iith-medium-slope", name: "IITH medium-slope terrain", category: "IITH terrain", code: "I05", description: "6,932-triangle ground surface from slope_5 with a fitted 3.02° grade", size: "165 KB", tone: "teal", file: "/models/iith/iith-medium-slope.glb", format: "GLB", preview: "/models/iith/iith-medium-slope.png", stats: [{ label: "SOURCE", value: "slope_5" }, { label: "GROUND POINTS", value: "17,732" }, { label: "FITTED GRADE", value: "3.02°" }, { label: "TRIANGLES", value: "6,932" }] },
+  { id: "iith-high-slope", name: "IITH high-slope terrain", category: "IITH terrain", code: "I10", description: "6,904-triangle ground surface from slope_10 with a fitted 6.59° grade", size: "165 KB", tone: "yellow", file: "/models/iith/iith-high-slope.glb", format: "GLB", preview: "/models/iith/iith-high-slope.png", stats: [{ label: "SOURCE", value: "slope_10" }, { label: "GROUND POINTS", value: "17,732" }, { label: "FITTED GRADE", value: "6.59°" }, { label: "TRIANGLES", value: "6,904" }] },
   { id: "generator", name: "Backup generator", category: "Energy", code: "GEN", description: "250 kVA emergency diesel generator", size: "42 KB", tone: "yellow" },
   { id: "substation", name: "Compact substation", category: "Energy", code: "SUB", description: "11 kV prefabricated distribution unit", size: "68 KB", tone: "teal" },
   { id: "pump", name: "Flood pump station", category: "Water", code: "PMP", description: "High-volume portable dewatering pump", size: "51 KB", tone: "blue" },
@@ -75,7 +79,12 @@ function Mark({ children }: { children: React.ReactNode }) {
 export default function Home() {
   const [activeScenario, setActiveScenario] = useState<ScenarioKey>("sewer");
   const [population, setPopulation] = useState(2000);
-  const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false });
+  const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false, sensors: true, construction: true });
+  const [inspectorTab, setInspectorTab] = useState<"simulation" | "operations" | "object">("simulation");
+  const [operationalMode, setOperationalMode] = useState(true);
+  const [compareMode, setCompareMode] = useState(false);
+  const [incidentActive, setIncidentActive] = useState(false);
+  const [liveTick, setLiveTick] = useState(0);
   const [selectedId, setSelectedId] = useState(7);
   const [running, setRunning] = useState(false);
   const [complete, setComplete] = useState(false);
@@ -89,13 +98,18 @@ export default function Home() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
-  const [importState, setImportState] = useState("LiDAR scan · 2.8B points");
+  const [importState, setImportState] = useState("IITH ground dataset · 11 PCD scans");
   const [toast, setToast] = useState("Digital twin synchronized · 2 min ago");
   const [addedAssets, setAddedAssets] = useState<PlacedAsset[]>([]);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [assetSearch, setAssetSearch] = useState("");
   const [assetCategory, setAssetCategory] = useState("All");
   const [selectedAsset, setSelectedAsset] = useState<AssetDefinition>(assetLibrary[0]);
+  const [viewerAsset, setViewerAsset] = useState<AssetDefinition | null>(null);
+  const [selectedPlacedAssetId, setSelectedPlacedAssetId] = useState<number | null>(null);
+  const [replaceAssetId, setReplaceAssetId] = useState<number | null>(null);
+  const [movingAssetId, setMovingAssetId] = useState<number | null>(null);
+  const [placementPreview, setPlacementPreview] = useState<MapPoint | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dragOrigin = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
@@ -105,6 +119,7 @@ export default function Home() {
   const status = flow >= 90 ? "Capacity risk" : flow >= 80 ? "Watch closely" : "Within capacity";
   const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];
   const filteredAssets = assetLibrary.filter((asset) => (assetCategory === "All" || asset.category === assetCategory) && `${asset.name} ${asset.category} ${asset.description}`.toLowerCase().includes(assetSearch.toLowerCase()));
+  const selectedPlacedAsset = addedAssets.find((asset) => asset.id === selectedPlacedAssetId) ?? null;
 
   const metricSet = useMemo(() => {
     if (activeScenario === "flood") return [
@@ -131,11 +146,21 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
+    if (!operationalMode) return;
+    const interval = window.setInterval(() => setLiveTick((current) => current + 1), 3000);
+    return () => window.clearInterval(interval);
+  }, [operationalMode]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDraftPoints([]);
         setTool("select");
         setAssetLibraryOpen(false);
+        setViewerAsset(null);
+        setReplaceAssetId(null);
+        setMovingAssetId(null);
+        setPlacementPreview(null);
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -174,11 +199,13 @@ export default function Home() {
 
   function selectTool(nextTool: ToolKey) {
     setDraftPoints([]);
+    setSelectedPlacedAssetId(null);
+    setPlacementPreview(null);
     setTool(nextTool);
     if (nextTool === "line") setToast("Click points on the map, then finish the utility line");
     if (nextTool === "area") setToast("Click three or more points to mark a planning zone");
     if (nextTool === "building") setToast("Click the map to place a proposed building");
-    if (nextTool === "asset") setAssetLibraryOpen(true);
+    if (nextTool === "asset") { setReplaceAssetId(null); setAssetLibraryOpen(true); }
   }
 
   function finishDrawing() {
@@ -218,6 +245,16 @@ export default function Home() {
   }
 
   function downloadAsset(asset: AssetDefinition) {
+    if (asset.file) {
+      const anchor = document.createElement("a");
+      anchor.href = asset.file;
+      anchor.download = `mirrorcity-${asset.id}.${asset.format?.toLowerCase() ?? "glb"}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setToast(`${asset.name}.${asset.format?.toLowerCase()} downloaded`);
+      return;
+    }
     const blob = new Blob([buildObjAsset(asset)], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -231,8 +268,20 @@ export default function Home() {
   }
 
   function beginAssetPlacement(asset: AssetDefinition) {
+    if (replaceAssetId !== null) {
+      setAddedAssets((current) => current.map((placed) => placed.id === replaceAssetId ? { ...placed, asset } : placed));
+      setSelectedPlacedAssetId(replaceAssetId);
+      setSelectedAsset(asset);
+      setReplaceAssetId(null);
+      setAssetLibraryOpen(false);
+      setTool("select");
+      setToast(`Asset replaced with ${asset.name}`);
+      return;
+    }
     setSelectedAsset(asset);
     setAssetLibraryOpen(false);
+    setViewerAsset(null);
+    setSelectedPlacedAssetId(null);
     setTool("asset");
     setToast(`Click the map to place ${asset.name}`);
   }
@@ -245,6 +294,16 @@ export default function Home() {
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const point = {
+      x: Math.max(0, Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100)),
+      y: Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)),
+    };
+    if (movingAssetId !== null) {
+      setAddedAssets((current) => current.map((placed) => placed.id === movingAssetId ? { ...placed, ...point } : placed));
+      return;
+    }
+    if (tool === "asset") setPlacementPreview(point);
     if (!dragging) return;
     setPan({
       x: dragOrigin.current.panX + event.clientX - dragOrigin.current.x,
@@ -253,8 +312,13 @@ export default function Home() {
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    if (movingAssetId !== null) {
+      setMovingAssetId(null);
+      setToast("Asset position updated · Unsaved change");
+      return;
+    }
     setDragging(false);
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function handleMapClick(event: React.MouseEvent<HTMLDivElement>) {
@@ -270,9 +334,29 @@ export default function Home() {
       setToast(`${buildingFloors}-floor proposed building placed`);
       return;
     }
-    setAddedAssets((current) => [...current, { id: Date.now(), x: point.x, y: point.y, asset: selectedAsset }]);
+    const id = Date.now();
+    setAddedAssets((current) => [...current, { id, x: point.x, y: point.y, rotation: 0, scale: 1, asset: selectedAsset }]);
+    setSelectedPlacedAssetId(id);
+    setPlacementPreview(null);
     setTool("select");
     setToast(`${selectedAsset.name} placed · Unsaved change`);
+  }
+
+  function updatePlacedAsset(id: number, changes: Partial<Pick<PlacedAsset, "x" | "y" | "rotation" | "scale">>) {
+    setAddedAssets((current) => current.map((asset) => asset.id === id ? { ...asset, ...changes } : asset));
+  }
+
+  function duplicatePlacedAsset(asset: PlacedAsset) {
+    const duplicate = { ...asset, id: Date.now(), x: Math.min(96, asset.x + 4), y: Math.min(96, asset.y + 4) };
+    setAddedAssets((current) => [...current, duplicate]);
+    setSelectedPlacedAssetId(duplicate.id);
+    setToast(`${asset.asset.name} duplicated`);
+  }
+
+  function deletePlacedAsset(id: number) {
+    setAddedAssets((current) => current.filter((asset) => asset.id !== id));
+    setSelectedPlacedAssetId(null);
+    setToast("Asset removed from the district");
   }
 
   return (
@@ -288,9 +372,10 @@ export default function Home() {
           <button aria-label="Open district switcher">⌄</button>
         </div>
         <div className="top-actions">
-          <div className="sync-status"><span /> MODEL LIVE</div>
+          <button className={`mode-switch ${operationalMode ? "live" : ""}`} onClick={() => { setOperationalMode((current) => !current); setToast(operationalMode ? "Twin paused in planning mode" : "Live operational feeds connected"); }}><span /> {operationalMode ? "LIVE TWIN" : "PLANNING MODE"}</button>
+          <button className={`compare-button ${compareMode ? "active" : ""}`} onClick={() => { setCompareMode((current) => !current); setToast(compareMode ? "Showing current district" : "Comparing current and proposed design"); }}>◐ Compare</button>
           <button className="quiet-button" onClick={() => setToast("Snapshot saved to scenario history")}>Save snapshot</button>
-          <button className="quiet-button asset-library-button" onClick={() => setAssetLibraryOpen(true)}>▦ Asset library</button>
+          <button className="quiet-button asset-library-button" onClick={() => { setReplaceAssetId(null); setAssetLibraryOpen(true); }}>▦ Asset library</button>
           <button className="primary-button" onClick={() => fileRef.current?.click()}><Mark>＋</Mark> Import data</button>
           <input ref={fileRef} className="sr-only" type="file" accept=".las,.laz,.tif,.tiff,.obj,.ply,.glb,.gltf,.fbx,image/*" onChange={handleImport} />
           <button className="avatar" aria-label="Open account menu">NK</button>
@@ -301,7 +386,7 @@ export default function Home() {
         <aside className="icon-rail" aria-label="Primary navigation">
           <button className="rail-button active" aria-label="City twin"><Mark>◇</Mark></button>
           <button className="rail-button" aria-label="Data catalogue"><Mark>▥</Mark></button>
-          <button className="rail-button" aria-label="Assets" onClick={() => setAssetLibraryOpen(true)}><Mark>▦</Mark></button>
+          <button className="rail-button" aria-label="Assets" onClick={() => { setReplaceAssetId(null); setAssetLibraryOpen(true); }}><Mark>▦</Mark></button>
           <button className="rail-button" aria-label="Analytics"><Mark>⌁</Mark></button>
           <span className="rail-spacer" />
           <button className="rail-button" aria-label="Help"><Mark>?</Mark></button>
@@ -316,8 +401,17 @@ export default function Home() {
 
           <section className="data-card">
             <div className="data-thumb"><span className="scan-grid" /><span className="scan-pulse" /></div>
-            <div><small>SOURCE DATA</small><strong>{importState}</strong><span>12.4 cm ground resolution</span></div>
+            <div><small>SOURCE DATA</small><strong>{importState}</strong><span>Ground / non-ground · 202,939 points</span></div>
             <span className="check-badge">✓</span>
+          </section>
+
+          <section className="iith-model-set">
+            <div className="section-label"><span>IITH MODEL SET</span><button onClick={() => { setReplaceAssetId(null); setAssetCategory("IITH terrain"); setAssetLibraryOpen(true); }}>View all</button></div>
+            {assetLibrary.filter((asset) => asset.category === "IITH terrain").map((asset) => <button className="iith-model-row" key={asset.id} onClick={() => setViewerAsset(asset)}>
+              <span className="iith-model-thumb" style={{ backgroundImage: `url(${asset.preview})` }} />
+              <span><strong>{asset.name.replace("IITH ", "")}</strong><small>{asset.stats?.[1].value} points · {asset.stats?.[3].value} tris</small></span>
+              <em>{asset.stats?.[2].value}</em>
+            </button>)}
           </section>
 
           <section className="side-section">
@@ -328,6 +422,8 @@ export default function Home() {
                 ["sewer", "Sewer network", "18.2 km", "#ffb936"],
                 ["power", "Power grid", "46 assets", "#55d5c8"],
                 ["mobility", "Mobility", "Live traffic", "#83a7ff"],
+                ["sensors", "Live sensor feeds", "128 online", "#c9f36d"],
+                ["construction", "Capital works", "7 active sites", "#ff7f63"],
               ] as Array<[LayerKey, string, string, string]>).map(([key, name, meta, color]) => (
                 <button className={`layer-row ${layers[key] ? "on" : ""}`} key={key} onClick={() => toggleLayer(key)}>
                   <span className="layer-swatch" style={{ "--swatch": color } as React.CSSProperties} />
@@ -344,7 +440,7 @@ export default function Home() {
               <button className={tool === "line" ? "active" : ""} onClick={() => selectTool("line")}><b>⌁</b><span>Utility line</span></button>
               <button className={tool === "area" ? "active" : ""} onClick={() => selectTool("area")}><b>⬡</b><span>Plan zone</span></button>
               <button className={tool === "building" ? "active" : ""} onClick={() => selectTool("building")}><b>▥</b><span>Building</span></button>
-              <button className={tool === "asset" ? "active" : ""} onClick={() => setAssetLibraryOpen(true)}><b>＋</b><span>3D asset</span></button>
+              <button className={tool === "asset" ? "active" : ""} onClick={() => selectTool("asset")}><b>＋</b><span>3D asset</span></button>
             </div>
           </section>
 
@@ -378,16 +474,31 @@ export default function Home() {
             {tool === "line" && <div className="line-kind-picker">{lineKinds.map((kind) => <button key={kind.id} className={lineKind === kind.id ? "active" : ""} style={{ "--kind": kind.color } as React.CSSProperties} onClick={() => setLineKind(kind.id)}><i />{kind.label}</button>)}</div>}
             {tool === "area" && <p>Click around the site boundary. Add at least three points.</p>}
             {tool === "building" && <label className="floor-control"><span>FLOORS</span><input type="range" min="1" max="18" value={buildingFloors} onChange={(event) => setBuildingFloors(Number(event.target.value))}/><strong>{buildingFloors}</strong></label>}
-            {tool === "asset" && <div className="chosen-asset"><i>{selectedAsset.code}</i><span><strong>{selectedAsset.name}</strong><small>{selectedAsset.category}</small></span><button onClick={() => setAssetLibraryOpen(true)}>Change</button></div>}
+            {tool === "asset" && <div className="chosen-asset"><i>{selectedAsset.code}</i><span><strong>{selectedAsset.name}</strong><small>{selectedAsset.category}</small></span><button onClick={() => { setReplaceAssetId(null); setAssetLibraryOpen(true); }}>Change</button></div>}
+            {tool === "asset" && <div className="placement-instruction"><i>1</i><span><strong>Move over the district</strong><small>Click anywhere—including buildings—to place</small></span></div>}
             {(tool === "line" || tool === "area") && <div className="dock-actions"><span>{draftPoints.length} {draftPoints.length === 1 ? "point" : "points"}</span><button onClick={() => setDraftPoints((current) => current.slice(0, -1))} disabled={!draftPoints.length}>Undo point</button><button className="finish-button" onClick={finishDrawing}>Finish</button></div>}
+          </div>}
+
+          {selectedPlacedAsset && tool === "select" && <div className="asset-edit-dock">
+            <div className="dock-heading"><span>EDIT PLACED ASSET</span><button onClick={() => setSelectedPlacedAssetId(null)}>×</button></div>
+            <div className="edit-asset-heading"><i>{selectedPlacedAsset.asset.code}</i><span><strong>{selectedPlacedAsset.asset.name}</strong><small>Drag the asset directly to move it</small></span></div>
+            <label className="transform-control"><span>ROTATION</span><input type="range" min="-180" max="180" step="5" value={selectedPlacedAsset.rotation} onChange={(event) => updatePlacedAsset(selectedPlacedAsset.id, { rotation: Number(event.target.value) })} /><strong>{selectedPlacedAsset.rotation}°</strong></label>
+            <label className="transform-control"><span>SCALE</span><input type="range" min="0.5" max="2.5" step="0.1" value={selectedPlacedAsset.scale} onChange={(event) => updatePlacedAsset(selectedPlacedAsset.id, { scale: Number(event.target.value) })} /><strong>{selectedPlacedAsset.scale.toFixed(1)}×</strong></label>
+            <div className="nudge-row"><span>NUDGE</span><button aria-label="Move left" onClick={() => updatePlacedAsset(selectedPlacedAsset.id, { x: Math.max(0, selectedPlacedAsset.x - 1) })}>←</button><button aria-label="Move up" onClick={() => updatePlacedAsset(selectedPlacedAsset.id, { y: Math.max(0, selectedPlacedAsset.y - 1) })}>↑</button><button aria-label="Move down" onClick={() => updatePlacedAsset(selectedPlacedAsset.id, { y: Math.min(100, selectedPlacedAsset.y + 1) })}>↓</button><button aria-label="Move right" onClick={() => updatePlacedAsset(selectedPlacedAsset.id, { x: Math.min(100, selectedPlacedAsset.x + 1) })}>→</button></div>
+            <div className="edit-asset-actions"><button onClick={() => duplicatePlacedAsset(selectedPlacedAsset)}>⧉ Duplicate</button><button onClick={() => { setReplaceAssetId(selectedPlacedAsset.id); setAssetCategory("All"); setAssetLibraryOpen(true); }}>↺ Replace</button><button className="delete-action" onClick={() => deletePlacedAsset(selectedPlacedAsset.id)}>Delete</button></div>
           </div>}
 
           <div
             className={`map-stage tool-${tool} ${dragging ? "dragging" : ""}`}
+            role="button"
+            aria-label="Interactive district map"
+            tabIndex={0}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
+            onPointerLeave={() => { if (movingAssetId === null) setPlacementPreview(null); }}
             onClick={handleMapClick}
+            onKeyDown={(event) => { if (event.key === "Escape") { setDraftPoints([]); setTool("select"); } }}
           >
             <div className="map-glow" />
             <div className="author-layer" aria-label="User-created map geometry">
@@ -395,9 +506,33 @@ export default function Home() {
               {tool === "area" && draftPoints.length >= 3 && <div className="drawn-area draft" style={{ clipPath: `polygon(${draftPoints.map((point) => `${point.x}% ${point.y}%`).join(",")})` }} />}
               {[...drawnLines, ...(tool === "line" && draftPoints.length > 1 ? [{ id: -1, kind: lineKind, points: draftPoints }] : [])].flatMap((line) => getSegments(line.points).map((segment, index) => <i key={`${line.id}-${index}`} className={`user-line kind-${line.kind} ${line.id === -1 ? "draft" : ""}`} style={{ left: `${segment.left}%`, top: `${segment.top}%`, width: `${segment.width}%`, transform: `rotate(${segment.angle}deg)` }} />))}
               {draftPoints.map((point, index) => <i key={`point-${index}`} className="draft-point" style={{ left: `${point.x}%`, top: `${point.y}%` }}>{index + 1}</i>)}
-              {plannedBuildings.map((building) => <button key={building.id} className="planned-building" style={{ left: `${building.x}%`, top: `${building.y}%`, "--floors": building.floors } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setToast(`Proposed ${building.floors}-floor building selected`); }}><i /><b>{building.floors}F</b></button>)}
-              {addedAssets.map((asset) => <button key={asset.id} className={`placed-map-asset tone-${asset.asset.tone}`} style={{ left: `${asset.x}%`, top: `${asset.y}%` }} onClick={(event) => { event.stopPropagation(); setToast(`${asset.asset.name} selected`); }}><i>{asset.asset.code}</i><span>{asset.asset.name}</span></button>)}
+              {plannedBuildings.map((building) => <button key={building.id} className="planned-building" style={{ left: `${building.x}%`, top: `${building.y}%`, "--floors": building.floors } as React.CSSProperties} onClick={(event) => { if (["asset", "line", "area", "building"].includes(tool)) return; event.stopPropagation(); setToast(`Proposed ${building.floors}-floor building selected`); }}><i /><b>{building.floors}F</b></button>)}
+              {placementPreview && tool === "asset" && <div className={`asset-placement-ghost tone-${selectedAsset.tone} ${selectedAsset.preview ? "is-terrain" : ""}`} style={{ left: `${placementPreview.x}%`, top: `${placementPreview.y}%`, backgroundImage: selectedAsset.preview ? `url(${selectedAsset.preview})` : undefined }}><i>{selectedAsset.code}</i><span>CLICK TO PLACE</span></div>}
+              {addedAssets.map((asset) => <button
+                key={asset.id}
+                className={`placed-map-asset tone-${asset.asset.tone} ${asset.asset.preview ? "is-terrain" : ""} ${selectedPlacedAssetId === asset.id ? "selected" : ""} ${movingAssetId === asset.id ? "moving" : ""}`}
+                style={{ left: `${asset.x}%`, top: `${asset.y}%`, transform: `translate(-50%,-50%) rotate(${asset.rotation}deg) scale(${asset.scale})`, backgroundImage: asset.asset.preview ? `url(${asset.asset.preview})` : undefined }}
+                onPointerDown={(event) => { if (tool === "asset") return; event.stopPropagation(); setSelectedPlacedAssetId(asset.id); setMovingAssetId(asset.id); setTool("select"); }}
+                onClick={(event) => { if (tool === "asset") return; event.stopPropagation(); setSelectedPlacedAssetId(asset.id); setTool("select"); setToast(`${asset.asset.name} selected · drag to move`); }}
+                onKeyDown={(event) => {
+                  const delta = event.shiftKey ? 5 : 1;
+                  if (event.key === "ArrowLeft") updatePlacedAsset(asset.id, { x: Math.max(0, asset.x - delta) });
+                  if (event.key === "ArrowRight") updatePlacedAsset(asset.id, { x: Math.min(100, asset.x + delta) });
+                  if (event.key === "ArrowUp") updatePlacedAsset(asset.id, { y: Math.max(0, asset.y - delta) });
+                  if (event.key === "ArrowDown") updatePlacedAsset(asset.id, { y: Math.min(100, asset.y + delta) });
+                  if (event.key === "Delete" || event.key === "Backspace") deletePlacedAsset(asset.id);
+                }}
+                aria-label={`${asset.asset.name}. Drag to move, arrow keys to nudge.`}
+              ><i>{asset.asset.code}</i><span>{asset.asset.name}</span></button>)}
             </div>
+            {operationalMode && <div className="operations-layer" aria-label="Live district operations">
+              {layers.mobility && <div className="live-fleet"><i className="vehicle v1">B12</i><i className="vehicle v2">A03</i><i className="vehicle v3">T41</i><i className="vehicle v4">E07</i></div>}
+              {layers.sensors && <div className="sensor-feed"><button className="sensor s1" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Flow sensor SW-18 · 42.6 L/s"); }}>42.6</button><button className="sensor s2" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Air quality station AQ-04 · Good"); }}>AQ</button><button className="sensor s3" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Grid monitor E-14 · 71% load"); }}>71%</button></div>}
+              {layers.construction && <div className="construction-feed"><button className="worksite w1" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("River interceptor upgrade · 64% complete"); }}><i />64%<span>INTERCEPTOR</span></button><button className="worksite w2" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Emergency hub extension · 38% complete"); }}><i />38%<span>RESPONSE HUB</span></button></div>}
+              {incidentActive && <button className="incident-marker" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); }}>!<span>ROAD INCIDENT · 2 UNITS RESPONDING</span></button>}
+              <span className="live-tick">FEED #{String(liveTick + 1842).padStart(6, "0")}</span>
+            </div>}
+            {compareMode && <div className="compare-overlay"><span className="compare-label current">CURRENT</span><span className="compare-label proposed">PROPOSED 2035</span><i className="compare-divider" /><div className="proposed-corridor"><i /><i /><i /></div></div>}
             <div className="city-world" style={{ transform: `translate(calc(-50% + ${pan.x}px), calc(-48% + ${pan.y}px)) scale(${zoom}) rotateX(57deg) rotateZ(-36deg)` }}>
               <div className="district-base">
                 <div className="river"><i /><i /></div>
@@ -411,7 +546,7 @@ export default function Home() {
                     key={building.id}
                     className={`building tone-${building.tone} ${selectedId === building.id ? "selected" : ""}`}
                     style={{ left: `${building.x}%`, top: `${building.y}%`, width: building.w, height: building.d, "--height": `${building.h}px` } as React.CSSProperties}
-                    onClick={(event) => { event.stopPropagation(); setSelectedId(building.id); setTool("select"); }}
+                    onClick={(event) => { if (["asset", "line", "area", "building"].includes(tool)) return; event.stopPropagation(); setSelectedId(building.id); setTool("select"); }}
                     aria-label={`Select ${building.name}`}
                   ><span className="building-top" /><span className="building-side-a" /><span className="building-side-b" /><i className="building-pin">{building.id === 7 ? "E-14" : building.id}</i></button>
                 ))}
@@ -437,67 +572,105 @@ export default function Home() {
         </section>
 
         <aside className="inspector">
-          <div className="inspector-tabs"><button className="active">SIMULATION</button><button>OBJECT</button></div>
+          <div className="inspector-tabs triple"><button className={inspectorTab === "simulation" ? "active" : ""} onClick={() => setInspectorTab("simulation")}>SIMULATE</button><button className={inspectorTab === "operations" ? "active" : ""} onClick={() => setInspectorTab("operations")}>OPERATE</button><button className={inspectorTab === "object" ? "active" : ""} onClick={() => setInspectorTab("object")}>OBJECT</button></div>
           <div className="inspector-scroll">
-            <section className="simulation-title">
-              <span style={{ color: scenario.accent }}>{scenario.kicker}</span>
-              <h2>{scenario.label}</h2>
-              <p>{activeScenario === "sewer" ? "Test how the district network responds as occupancy changes." : activeScenario === "flood" ? "Estimate depth, exposure and recovery under severe rainfall." : "Model clearance time, route load and response access."}</p>
-            </section>
+            {inspectorTab === "simulation" && <>
+              <section className="simulation-title">
+                <span style={{ color: scenario.accent }}>{scenario.kicker}</span>
+                <h2>{scenario.label}</h2>
+                <p>{activeScenario === "sewer" ? "Test how the district network responds as occupancy changes." : activeScenario === "flood" ? "Estimate depth, exposure and recovery under severe rainfall." : "Model clearance time, route load and response access."}</p>
+              </section>
 
-            {activeScenario === "sewer" && <section className="population-control">
-              <div className="control-heading"><span>POPULATION</span><strong>{population.toLocaleString()} <small>people</small></strong></div>
-              <input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => { setPopulation(Number(event.target.value)); setComplete(false); }} />
-              <div className="range-labels"><span>1,500<br/><small>Current</small></span><span>2,000<br/><small>Planned</small></span><span>2,500<br/><small>Stress</small></span></div>
-            </section>}
+              {activeScenario === "sewer" && <section className="population-control">
+                <div className="control-heading"><span>POPULATION</span><strong>{population.toLocaleString()} <small>people</small></strong></div>
+                <input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => { setPopulation(Number(event.target.value)); setComplete(false); }} />
+                <div className="range-labels"><span>1,500<br/><small>Current</small></span><span>2,000<br/><small>Planned</small></span><span>2,500<br/><small>Stress</small></span></div>
+              </section>}
 
-            <section className="metrics-grid">
-              {metricSet.map((metric, index) => <div key={metric.label} className={index === 0 && flow >= 90 && activeScenario === "sewer" ? "risk" : ""}><small>{metric.label}</small><strong>{metric.value}</strong><span>{metric.trend}</span></div>)}
-            </section>
+              <section className="metrics-grid">
+                {metricSet.map((metric, index) => <div key={metric.label} className={index === 0 && flow >= 90 && activeScenario === "sewer" ? "risk" : ""}><small>{metric.label}</small><strong>{metric.value}</strong><span>{metric.trend}</span></div>)}
+              </section>
 
-            <section className={`capacity-card ${flow >= 90 && activeScenario === "sewer" ? "at-risk" : ""}`}>
-              <div className="capacity-header"><span>MODEL CONFIDENCE</span><strong>{activeScenario === "sewer" ? "94%" : activeScenario === "flood" ? "89%" : "91%"}</strong></div>
-              <div className="capacity-bar"><i /></div>
-              <p><span /> {activeScenario === "sewer" ? status : activeScenario === "flood" ? "3 priority interventions found" : "Routes remain operational"}</p>
-            </section>
+              <section className={`capacity-card ${flow >= 90 && activeScenario === "sewer" ? "at-risk" : ""}`}>
+                <div className="capacity-header"><span>MODEL CONFIDENCE</span><strong>{activeScenario === "sewer" ? "94%" : activeScenario === "flood" ? "89%" : "91%"}</strong></div>
+                <div className="capacity-bar"><i /></div>
+                <p><span /> {activeScenario === "sewer" ? status : activeScenario === "flood" ? "3 priority interventions found" : "Routes remain operational"}</p>
+              </section>
 
-            <button className={`run-button ${running ? "running" : ""}`} disabled={running} onClick={runSimulation}>{running ? <><i /> COMPUTING NETWORK…</> : complete ? "✓ SIMULATION COMPLETE" : "▶ RUN SIMULATION"}</button>
+              <button className={`run-button ${running ? "running" : ""}`} disabled={running} onClick={runSimulation}>{running ? <><i /> COMPUTING NETWORK…</> : complete ? "✓ SIMULATION COMPLETE" : "▶ RUN SIMULATION"}</button>
 
-            {complete && <section className="recommendation">
-              <div className="recommendation-icon">!</div>
-              <div><span>RECOMMENDED ACTION</span><strong>{activeScenario === "sewer" ? "Upgrade node SW-18 before occupancy permit" : activeScenario === "flood" ? "Stage pumps at River Gate 03" : "Reverse Market Road during clearance"}</strong><button onClick={() => setToast("Intervention added to district action plan")}>Add to action plan →</button></div>
-            </section>}
+              {complete && <section className="recommendation">
+                <div className="recommendation-icon">!</div>
+                <div><span>RECOMMENDED ACTION</span><strong>{activeScenario === "sewer" ? "Upgrade node SW-18 before occupancy permit" : activeScenario === "flood" ? "Stage pumps at River Gate 03" : "Reverse Market Road during clearance"}</strong><button onClick={() => setToast("Intervention added to district action plan")}>Add to action plan →</button></div>
+              </section>}
+            </>}
 
-            <section className="selected-object">
+            {inspectorTab === "operations" && <>
+              <section className="simulation-title operations-title">
+                <span>LIVE DISTRICT OPERATIONS</span><h2>Common operating picture</h2><p>One spatial view of infrastructure, movement, construction and active response.</p>
+              </section>
+              <section className="ops-health"><div><i /><span><small>SYSTEM STATUS</small><strong>{incidentActive ? "Response active" : "District nominal"}</strong></span></div><em>{operationalMode ? "LIVE" : "PAUSED"}</em></section>
+              <section className="ops-kpis"><div><small>ASSETS ONLINE</small><strong>97.8%</strong><span>125 / 128</span></div><div><small>ROAD FLOW</small><strong>{incidentActive ? "61" : "84"}%</strong><span>{incidentActive ? "−23%" : "+4%"}</span></div><div><small>GRID DEMAND</small><strong>71%</strong><span>6.2 MW</span></div><div><small>EMISSIONS</small><strong>−12%</strong><span>vs baseline</span></div></section>
+              <section className="event-stream"><div className="section-label"><span>OPERATIONAL FEED</span><button onClick={() => setToast("Feed filters opened")}>Filter</button></div>
+                {incidentActive && <article className="urgent"><i>!</i><div><strong>Market Road collision</strong><span>Ambulance A03 and patrol E07 dispatched</span><small>NOW · RESPONSE</small></div></article>}
+                <article><i>↗</i><div><strong>Interceptor flow rising</strong><span>SW-18 reached 42.6 L/s after rainfall</span><small>2 MIN · WATER</small></div></article>
+                <article><i>✓</i><div><strong>Substation inspection complete</strong><span>E-14 cleared for peak demand window</span><small>11 MIN · ENERGY</small></div></article>
+                <article><i>▥</i><div><strong>Construction model updated</strong><span>River interceptor package now 64% complete</span><small>24 MIN · CAPITAL WORKS</small></div></article>
+              </section>
+              <section className="construction-progress"><div className="section-label"><span>CAPITAL WORKS</span><strong>2 / 7 SHOWN</strong></div><div><span><b>River interceptor upgrade</b><small>64% · On schedule</small></span><i><b style={{ width: "64%" }} /></i></div><div><span><b>Emergency hub extension</b><small>38% · 4 days ahead</small></span><i><b style={{ width: "38%" }} /></i></div></section>
+              <button className={`incident-button ${incidentActive ? "resolve" : ""}`} onClick={() => { setIncidentActive((current) => !current); setToast(incidentActive ? "Incident resolved · normal routing restored" : "Incident injected · response routes recalculated"); }}>{incidentActive ? "✓ RESOLVE INCIDENT" : "+ SIMULATE LIVE INCIDENT"}</button>
+            </>}
+
+            {inspectorTab === "object" && <section className="selected-object object-tab">
               <div className="section-label"><span>SELECTED ASSET</span><button aria-label="Close selection" onClick={() => setSelectedId(0)}>×</button></div>
               <div className="asset-preview"><span className={`mini-building tone-${selected.tone}`} /><i>3D</i></div>
               <h3>{selected.name}</h3><p>{selected.type} · Asset MC-{String(selected.id).padStart(4, "0")}</p>
-              <div className="asset-facts"><span><small>CONDITION</small><strong className="good">● Operational</strong></span><span><small>LAST INSPECTION</small><strong>12 Aug 2026</strong></span></div>
+              <div className="asset-facts"><span><small>CONDITION</small><strong className="good">● Operational</strong></span><span><small>LAST INSPECTION</small><strong>12 Aug 2026</strong></span><span><small>LIVE LOAD</small><strong>71%</strong></span><span><small>SOURCE</small><strong>LiDAR + BIM</strong></span></div>
               <div className="asset-actions"><button onClick={() => setToast(`${selected.name} moved to edit mode`)}>Move</button><button onClick={() => setToast(`Replacement option opened for ${selected.name}`)}>Replace</button><button onClick={() => setToast("Asset details panel expanded")}>Details</button></div>
-            </section>
+              <div className="section-label change-heading"><span>CHANGE HISTORY</span><button onClick={() => setCompareMode(true)}>Compare</button></div>
+              <div className="change-log"><article><i>26</i><span><strong>Model geometry refreshed</strong><small>Aug 2026 · Drone survey</small></span></article><article><i>12</i><span><strong>Inspection record linked</strong><small>Aug 2026 · Field team</small></span></article><article><i>04</i><span><strong>Design alternative added</strong><small>Aug 2026 · Capital works</small></span></article></div>
+            </section>}
           </div>
         </aside>
       </section>
 
-      {assetLibraryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setAssetLibraryOpen(false)}>
-        <section className="asset-library" role="dialog" aria-modal="true" aria-labelledby="asset-library-title" onMouseDown={(event) => event.stopPropagation()}>
+      {assetLibraryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) { setAssetLibraryOpen(false); setReplaceAssetId(null); } }}>
+        <section className="asset-library" role="dialog" aria-modal="true" aria-labelledby="asset-library-title">
           <header className="library-header">
-            <div><span>3D CONTENT CATALOGUE</span><h2 id="asset-library-title">Civic asset library</h2><p>Place optimized planning assets in the twin or download an OBJ for your own 3D pipeline.</p></div>
-            <button aria-label="Close asset library" onClick={() => setAssetLibraryOpen(false)}>×</button>
+            <div><span>{replaceAssetId !== null ? "REPLACE SELECTED ASSET" : "3D CONTENT CATALOGUE"}</span><h2 id="asset-library-title">Civic asset library</h2><p>{replaceAssetId !== null ? "Choose a model below to swap it into the same position." : "Place optimized planning assets in the twin or download a model for your own 3D pipeline."}</p></div>
+            <button aria-label="Close asset library" onClick={() => { setAssetLibraryOpen(false); setReplaceAssetId(null); }}>×</button>
           </header>
           <div className="library-controls">
-            <label><span>⌕</span><input autoFocus value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search pumps, power, shelters…" /></label>
+            <label><span>⌕</span><input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search pumps, power, shelters…" /></label>
             <div>{assetCategories.map((category) => <button key={category} className={assetCategory === category ? "active" : ""} onClick={() => setAssetCategory(category)}>{category}</button>)}</div>
           </div>
           <div className="asset-catalogue">
             {filteredAssets.map((asset) => <article className="catalogue-card" key={asset.id}>
-              <div className={`catalogue-preview tone-${asset.tone}`}><span className={`asset-model model-${asset.id}`}><i /><b /></span><em>LOW POLY</em></div>
-              <div className="catalogue-copy"><span>{asset.category}</span><h3>{asset.name}</h3><p>{asset.description}</p><small>OBJ · Metric scale · {asset.size}</small></div>
-              <div className="catalogue-actions"><button className="place-button" onClick={() => beginAssetPlacement(asset)}>＋ Place in twin</button><button className="download-button" onClick={() => downloadAsset(asset)}>↓ Download OBJ</button></div>
+              <div className={`catalogue-preview tone-${asset.tone} ${asset.preview ? "lidar-preview" : ""}`} style={asset.preview ? { backgroundImage: `url(${asset.preview})` } : undefined}>{!asset.preview && <span className={`asset-model model-${asset.id}`}><i /><b /></span>}<em>{asset.preview ? "OPEN3D" : "LOW POLY"}</em></div>
+              <div className="catalogue-copy"><span>{asset.category}</span><h3>{asset.name}</h3><p>{asset.description}</p><small>{asset.format ?? "OBJ"} · Metric scale · {asset.size}</small></div>
+              <div className={`catalogue-actions ${asset.file ? "has-view" : ""}`}>{asset.file && <button className="view-button" onClick={() => { setReplaceAssetId(null); setViewerAsset(asset); setAssetLibraryOpen(false); }}>◉ View 3D</button>}<button className="place-button" onClick={() => beginAssetPlacement(asset)}>{replaceAssetId !== null ? "↺ Use this model" : "＋ Place in twin"}</button><button className="download-button" onClick={() => downloadAsset(asset)}>↓ Download {asset.format ?? "OBJ"}</button></div>
             </article>)}
             {!filteredAssets.length && <div className="empty-assets"><strong>No assets found</strong><span>Try a different search or category.</span></div>}
           </div>
-          <footer className="library-footer"><span><i /> 8 verified planning assets</span><p>All assets are lightweight, editable and generated for this MirrorCity prototype.</p></footer>
+          <footer className="library-footer"><span><i /> {assetLibrary.length} verified planning assets</span><p>Includes three Open3D terrain reconstructions generated from the supplied IITH dataset.</p></footer>
+        </section>
+      </div>}
+
+      {viewerAsset?.file && <div className="model-viewer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setViewerAsset(null); }}>
+        <section className="model-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="model-viewer-title">
+          <header className="model-viewer-header">
+            <div><span>IITH TERRAIN MODEL · {viewerAsset.code}</span><h2 id="model-viewer-title">{viewerAsset.name}</h2><p>{viewerAsset.description}</p></div>
+            <button aria-label="Close 3D model viewer" onClick={() => setViewerAsset(null)}>×</button>
+          </header>
+          <div className="model-viewer-body">
+            <ModelViewer src={viewerAsset.file} />
+            <aside className="model-metadata">
+              <div><span>RECONSTRUCTION DETAILS</span><h3>Survey-derived surface</h3><p>Generated from the supplied labelled IITH point cloud with Open3D. Ground returns are filtered, triangulated and exported as a browser-ready GLB.</p></div>
+              <div className="model-stat-grid">{viewerAsset.stats?.map((stat) => <span key={stat.label}><small>{stat.label}</small><strong>{stat.value}</strong></span>)}</div>
+              <div className="model-source"><i>✓</i><span><small>VERIFIED LOCAL SOURCE</small><strong>IITH labelled ground dataset</strong><em>Metric geometry · {viewerAsset.size} GLB</em></span></div>
+              <div className="model-viewer-actions"><button onClick={() => beginAssetPlacement(viewerAsset)}>＋ Place in district</button><button onClick={() => downloadAsset(viewerAsset)}>↓ Download GLB</button></div>
+            </aside>
+          </div>
         </section>
       </div>}
 

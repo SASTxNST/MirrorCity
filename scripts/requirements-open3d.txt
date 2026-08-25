@@ -1,0 +1,5 @@
+open3d==0.19.0
+numpy>=2.0
+scipy>=1.14
+matplotlib>=3.9
+trimesh>=5.0

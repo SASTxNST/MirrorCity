@@ -38,3 +38,7 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Python reconstruction caches
+__pycache__/
+*.py[cod]
