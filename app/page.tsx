@@ -4,6 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type ScenarioKey = "sewer" | "flood" | "evacuation";
 type LayerKey = "buildings" | "sewer" | "power" | "mobility";
+type ToolKey = "select" | "orbit" | "measure" | "line" | "area" | "building" | "asset";
+type LineKind = "sewer" | "power" | "water" | "road";
+type MapPoint = { x: number; y: number };
+type DrawnLine = { id: number; kind: LineKind; points: MapPoint[] };
+type DrawnArea = { id: number; points: MapPoint[] };
+type PlannedBuilding = { id: number; x: number; y: number; floors: number };
+type AssetDefinition = { id: string; name: string; category: string; code: string; description: string; size: string; tone: string };
+type PlacedAsset = { id: number; x: number; y: number; asset: AssetDefinition };
 
 const buildings = [
   { id: 1, name: "Civic Hospital", type: "Critical facility", x: 17, y: 18, w: 86, d: 70, h: 92, tone: "teal" },
@@ -26,6 +34,40 @@ const scenarios = {
   evacuation: { label: "Rapid evacuation", kicker: "MOBILITY MODEL", accent: "#79a7ff" },
 };
 
+const assetLibrary: AssetDefinition[] = [
+  { id: "generator", name: "Backup generator", category: "Energy", code: "GEN", description: "250 kVA emergency diesel generator", size: "42 KB", tone: "yellow" },
+  { id: "substation", name: "Compact substation", category: "Energy", code: "SUB", description: "11 kV prefabricated distribution unit", size: "68 KB", tone: "teal" },
+  { id: "pump", name: "Flood pump station", category: "Water", code: "PMP", description: "High-volume portable dewatering pump", size: "51 KB", tone: "blue" },
+  { id: "manhole", name: "Sewer manhole", category: "Water", code: "MH", description: "Inspection chamber with removable cover", size: "18 KB", tone: "sand" },
+  { id: "tower", name: "Telecom tower", category: "Communications", code: "TEL", description: "30 m lattice emergency communications mast", size: "77 KB", tone: "slate" },
+  { id: "barrier", name: "Flood barrier", category: "Response", code: "BAR", description: "Modular interlocking water barrier", size: "29 KB", tone: "yellow" },
+  { id: "shelter", name: "Relief shelter", category: "Response", code: "SHL", description: "Rapid-deployment 40-person shelter", size: "63 KB", tone: "teal" },
+  { id: "hospital", name: "Field hospital", category: "Health", code: "MED", description: "Expandable emergency treatment unit", size: "84 KB", tone: "blue" },
+];
+
+const lineKinds: Array<{ id: LineKind; label: string; color: string }> = [
+  { id: "sewer", label: "Sewer", color: "#ffbb38" },
+  { id: "power", label: "Power", color: "#50d2c5" },
+  { id: "water", label: "Water", color: "#5caeff" },
+  { id: "road", label: "Road", color: "#cbd4ce" },
+];
+
+function getSegments(points: MapPoint[]) {
+  return points.slice(1).map((point, index) => {
+    const previous = points[index];
+    const dx = point.x - previous.x;
+    const dy = point.y - previous.y;
+    return { left: previous.x, top: previous.y, width: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) * 180 / Math.PI };
+  });
+}
+
+function buildObjAsset(asset: AssetDefinition) {
+  const height = asset.id === "tower" ? 4 : asset.id === "barrier" ? .8 : asset.id === "manhole" ? .35 : 1.8;
+  const width = asset.id === "barrier" ? 3 : asset.id === "shelter" || asset.id === "hospital" ? 2.8 : 1.6;
+  const depth = asset.id === "barrier" ? .45 : asset.id === "shelter" || asset.id === "hospital" ? 2.2 : 1.3;
+  return `# MirrorCity civic asset\n# ${asset.name}\no ${asset.id}\nv ${-width / 2} 0 ${-depth / 2}\nv ${width / 2} 0 ${-depth / 2}\nv ${width / 2} 0 ${depth / 2}\nv ${-width / 2} 0 ${depth / 2}\nv ${-width / 2} ${height} ${-depth / 2}\nv ${width / 2} ${height} ${-depth / 2}\nv ${width / 2} ${height} ${depth / 2}\nv ${-width / 2} ${height} ${depth / 2}\nf 1 2 3 4\nf 5 8 7 6\nf 1 5 6 2\nf 2 6 7 3\nf 3 7 8 4\nf 5 1 4 8\n`;
+}
+
 function Mark({ children }: { children: React.ReactNode }) {
   return <span className="mark" aria-hidden="true">{children}</span>;
 }
@@ -37,13 +79,23 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState(7);
   const [running, setRunning] = useState(false);
   const [complete, setComplete] = useState(false);
-  const [tool, setTool] = useState("orbit");
+  const [tool, setTool] = useState<ToolKey>("orbit");
+  const [lineKind, setLineKind] = useState<LineKind>("sewer");
+  const [draftPoints, setDraftPoints] = useState<MapPoint[]>([]);
+  const [drawnLines, setDrawnLines] = useState<DrawnLine[]>([]);
+  const [drawnAreas, setDrawnAreas] = useState<DrawnArea[]>([]);
+  const [plannedBuildings, setPlannedBuildings] = useState<PlannedBuilding[]>([]);
+  const [buildingFloors, setBuildingFloors] = useState(4);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [importState, setImportState] = useState("LiDAR scan · 2.8B points");
   const [toast, setToast] = useState("Digital twin synchronized · 2 min ago");
-  const [addedAssets, setAddedAssets] = useState<Array<{ id: number; x: number; y: number }>>([]);
+  const [addedAssets, setAddedAssets] = useState<PlacedAsset[]>([]);
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [assetSearch, setAssetSearch] = useState("");
+  const [assetCategory, setAssetCategory] = useState("All");
+  const [selectedAsset, setSelectedAsset] = useState<AssetDefinition>(assetLibrary[0]);
   const fileRef = useRef<HTMLInputElement>(null);
   const dragOrigin = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
@@ -51,6 +103,8 @@ export default function Home() {
   const flow = Math.round(68 + (population - 1500) * 0.054);
   const scenario = scenarios[activeScenario];
   const status = flow >= 90 ? "Capacity risk" : flow >= 80 ? "Watch closely" : "Within capacity";
+  const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];
+  const filteredAssets = assetLibrary.filter((asset) => (assetCategory === "All" || asset.category === assetCategory) && `${asset.name} ${asset.category} ${asset.description}`.toLowerCase().includes(assetSearch.toLowerCase()));
 
   const metricSet = useMemo(() => {
     if (activeScenario === "flood") return [
@@ -75,6 +129,22 @@ export default function Home() {
     const timeout = window.setTimeout(() => setToast(""), 4200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDraftPoints([]);
+        setTool("select");
+        setAssetLibraryOpen(false);
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undoLast();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   function toggleLayer(key: LayerKey) {
     setLayers((current) => ({ ...current, [key]: !current[key] }));
@@ -102,8 +172,73 @@ export default function Home() {
     }, 1700);
   }
 
+  function selectTool(nextTool: ToolKey) {
+    setDraftPoints([]);
+    setTool(nextTool);
+    if (nextTool === "line") setToast("Click points on the map, then finish the utility line");
+    if (nextTool === "area") setToast("Click three or more points to mark a planning zone");
+    if (nextTool === "building") setToast("Click the map to place a proposed building");
+    if (nextTool === "asset") setAssetLibraryOpen(true);
+  }
+
+  function finishDrawing() {
+    if (tool === "line" && draftPoints.length >= 2) {
+      setDrawnLines((current) => [...current, { id: Date.now(), kind: lineKind, points: draftPoints }]);
+      setToast(`${lineKinds.find((kind) => kind.id === lineKind)?.label} line created · ${draftPoints.length} nodes`);
+    } else if (tool === "area" && draftPoints.length >= 3) {
+      setDrawnAreas((current) => [...current, { id: Date.now(), points: draftPoints }]);
+      setToast(`Planning zone created · ${draftPoints.length} vertices`);
+    } else {
+      setToast(tool === "area" ? "Add at least 3 points" : "Add at least 2 points");
+      return;
+    }
+    setDraftPoints([]);
+    setTool("select");
+  }
+
+  function undoLast() {
+    if (draftPoints.length) {
+      setDraftPoints((current) => current.slice(0, -1));
+      return;
+    }
+    if (plannedBuildings.length) {
+      setPlannedBuildings((current) => current.slice(0, -1));
+      setToast("Last building removed");
+      return;
+    }
+    if (addedAssets.length) {
+      setAddedAssets((current) => current.slice(0, -1));
+      setToast("Last asset removed");
+      return;
+    }
+    if (drawnLines.length) {
+      setDrawnLines((current) => current.slice(0, -1));
+      setToast("Last line removed");
+    }
+  }
+
+  function downloadAsset(asset: AssetDefinition) {
+    const blob = new Blob([buildObjAsset(asset)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `mirrorcity-${asset.id}.obj`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setToast(`${asset.name}.obj downloaded`);
+  }
+
+  function beginAssetPlacement(asset: AssetDefinition) {
+    setSelectedAsset(asset);
+    setAssetLibraryOpen(false);
+    setTool("asset");
+    setToast(`Click the map to place ${asset.name}`);
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (tool === "asset") return;
+    if (["asset", "line", "area", "building"].includes(tool)) return;
     dragOrigin.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
     setDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -123,14 +258,21 @@ export default function Home() {
   }
 
   function handleMapClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (tool !== "asset" || dragging) return;
+    if (dragging || !["asset", "line", "area", "building"].includes(tool)) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    setAddedAssets((current) => [
-      ...current,
-      { id: Date.now(), x: ((event.clientX - bounds.left) / bounds.width) * 100, y: ((event.clientY - bounds.top) / bounds.height) * 100 },
-    ]);
+    const point = { x: ((event.clientX - bounds.left) / bounds.width) * 100, y: ((event.clientY - bounds.top) / bounds.height) * 100 };
+    if (tool === "line" || tool === "area") {
+      setDraftPoints((current) => [...current, point]);
+      return;
+    }
+    if (tool === "building") {
+      setPlannedBuildings((current) => [...current, { id: Date.now(), x: point.x, y: point.y, floors: buildingFloors }]);
+      setToast(`${buildingFloors}-floor proposed building placed`);
+      return;
+    }
+    setAddedAssets((current) => [...current, { id: Date.now(), x: point.x, y: point.y, asset: selectedAsset }]);
     setTool("select");
-    setToast("Backup generator placed · Unsaved change");
+    setToast(`${selectedAsset.name} placed · Unsaved change`);
   }
 
   return (
@@ -148,8 +290,9 @@ export default function Home() {
         <div className="top-actions">
           <div className="sync-status"><span /> MODEL LIVE</div>
           <button className="quiet-button" onClick={() => setToast("Snapshot saved to scenario history")}>Save snapshot</button>
+          <button className="quiet-button asset-library-button" onClick={() => setAssetLibraryOpen(true)}>▦ Asset library</button>
           <button className="primary-button" onClick={() => fileRef.current?.click()}><Mark>＋</Mark> Import data</button>
-          <input ref={fileRef} className="sr-only" type="file" accept=".las,.laz,.tif,.tiff,.obj,.ply,image/*" onChange={handleImport} />
+          <input ref={fileRef} className="sr-only" type="file" accept=".las,.laz,.tif,.tiff,.obj,.ply,.glb,.gltf,.fbx,image/*" onChange={handleImport} />
           <button className="avatar" aria-label="Open account menu">NK</button>
         </div>
       </header>
@@ -158,7 +301,7 @@ export default function Home() {
         <aside className="icon-rail" aria-label="Primary navigation">
           <button className="rail-button active" aria-label="City twin"><Mark>◇</Mark></button>
           <button className="rail-button" aria-label="Data catalogue"><Mark>▥</Mark></button>
-          <button className="rail-button" aria-label="Assets"><Mark>⌁</Mark></button>
+          <button className="rail-button" aria-label="Assets" onClick={() => setAssetLibraryOpen(true)}><Mark>▦</Mark></button>
           <button className="rail-button" aria-label="Analytics"><Mark>⌁</Mark></button>
           <span className="rail-spacer" />
           <button className="rail-button" aria-label="Help"><Mark>?</Mark></button>
@@ -195,6 +338,16 @@ export default function Home() {
             </div>
           </section>
 
+          <section className="side-section create-section">
+            <div className="section-label"><span>CREATE</span><button aria-label="Undo last edit" onClick={undoLast}>↶</button></div>
+            <div className="create-grid">
+              <button className={tool === "line" ? "active" : ""} onClick={() => selectTool("line")}><b>⌁</b><span>Utility line</span></button>
+              <button className={tool === "area" ? "active" : ""} onClick={() => selectTool("area")}><b>⬡</b><span>Plan zone</span></button>
+              <button className={tool === "building" ? "active" : ""} onClick={() => selectTool("building")}><b>▥</b><span>Building</span></button>
+              <button className={tool === "asset" ? "active" : ""} onClick={() => setAssetLibraryOpen(true)}><b>＋</b><span>3D asset</span></button>
+            </div>
+          </section>
+
           <section className="side-section scenarios-section">
             <div className="section-label"><span>ACTIVE SCENARIO</span><button aria-label="Scenario options">•••</button></div>
             {(Object.keys(scenarios) as ScenarioKey[]).map((key) => (
@@ -215,10 +368,19 @@ export default function Home() {
           </div>
 
           <div className="map-tools" aria-label="Map tools">
-            {[["select", "↖", "Select"], ["orbit", "↻", "Orbit"], ["measure", "↔", "Measure"], ["asset", "+", "Place asset"]].map(([key, icon, label]) => (
-              <button key={key} className={tool === key ? "active" : ""} onClick={() => { setTool(key); if (key === "asset") setToast("Click anywhere on the map to place a backup generator"); }} title={label} aria-label={label}>{icon}</button>
+            {([["select", "↖", "Select"], ["orbit", "↻", "Orbit"], ["measure", "↔", "Measure"], ["line", "⌁", "Draw utility"], ["area", "⬡", "Draw zone"], ["building", "▥", "Place building"], ["asset", "+", "Place 3D asset"]] as Array<[ToolKey, string, string]>).map(([key, icon, label]) => (
+              <button key={key} className={tool === key ? "active" : ""} onClick={() => selectTool(key)} title={label} aria-label={label}>{icon}</button>
             ))}
           </div>
+
+          {(tool === "line" || tool === "area" || tool === "building" || tool === "asset") && <div className="create-dock">
+            <div className="dock-heading"><span>{tool === "line" ? "DRAW UTILITY LINE" : tool === "area" ? "DRAW PLANNING ZONE" : tool === "building" ? "PLACE BUILDING" : "PLACE 3D ASSET"}</span><button onClick={() => { setTool("select"); setDraftPoints([]); }}>×</button></div>
+            {tool === "line" && <div className="line-kind-picker">{lineKinds.map((kind) => <button key={kind.id} className={lineKind === kind.id ? "active" : ""} style={{ "--kind": kind.color } as React.CSSProperties} onClick={() => setLineKind(kind.id)}><i />{kind.label}</button>)}</div>}
+            {tool === "area" && <p>Click around the site boundary. Add at least three points.</p>}
+            {tool === "building" && <label className="floor-control"><span>FLOORS</span><input type="range" min="1" max="18" value={buildingFloors} onChange={(event) => setBuildingFloors(Number(event.target.value))}/><strong>{buildingFloors}</strong></label>}
+            {tool === "asset" && <div className="chosen-asset"><i>{selectedAsset.code}</i><span><strong>{selectedAsset.name}</strong><small>{selectedAsset.category}</small></span><button onClick={() => setAssetLibraryOpen(true)}>Change</button></div>}
+            {(tool === "line" || tool === "area") && <div className="dock-actions"><span>{draftPoints.length} {draftPoints.length === 1 ? "point" : "points"}</span><button onClick={() => setDraftPoints((current) => current.slice(0, -1))} disabled={!draftPoints.length}>Undo point</button><button className="finish-button" onClick={finishDrawing}>Finish</button></div>}
+          </div>}
 
           <div
             className={`map-stage tool-${tool} ${dragging ? "dragging" : ""}`}
@@ -228,6 +390,14 @@ export default function Home() {
             onClick={handleMapClick}
           >
             <div className="map-glow" />
+            <div className="author-layer" aria-label="User-created map geometry">
+              {drawnAreas.map((area) => <div key={area.id} className="drawn-area" style={{ clipPath: `polygon(${area.points.map((point) => `${point.x}% ${point.y}%`).join(",")})` }} />)}
+              {tool === "area" && draftPoints.length >= 3 && <div className="drawn-area draft" style={{ clipPath: `polygon(${draftPoints.map((point) => `${point.x}% ${point.y}%`).join(",")})` }} />}
+              {[...drawnLines, ...(tool === "line" && draftPoints.length > 1 ? [{ id: -1, kind: lineKind, points: draftPoints }] : [])].flatMap((line) => getSegments(line.points).map((segment, index) => <i key={`${line.id}-${index}`} className={`user-line kind-${line.kind} ${line.id === -1 ? "draft" : ""}`} style={{ left: `${segment.left}%`, top: `${segment.top}%`, width: `${segment.width}%`, transform: `rotate(${segment.angle}deg)` }} />))}
+              {draftPoints.map((point, index) => <i key={`point-${index}`} className="draft-point" style={{ left: `${point.x}%`, top: `${point.y}%` }}>{index + 1}</i>)}
+              {plannedBuildings.map((building) => <button key={building.id} className="planned-building" style={{ left: `${building.x}%`, top: `${building.y}%`, "--floors": building.floors } as React.CSSProperties} onClick={(event) => { event.stopPropagation(); setToast(`Proposed ${building.floors}-floor building selected`); }}><i /><b>{building.floors}F</b></button>)}
+              {addedAssets.map((asset) => <button key={asset.id} className={`placed-map-asset tone-${asset.asset.tone}`} style={{ left: `${asset.x}%`, top: `${asset.y}%` }} onClick={(event) => { event.stopPropagation(); setToast(`${asset.asset.name} selected`); }}><i>{asset.asset.code}</i><span>{asset.asset.name}</span></button>)}
+            </div>
             <div className="city-world" style={{ transform: `translate(calc(-50% + ${pan.x}px), calc(-48% + ${pan.y}px)) scale(${zoom}) rotateX(57deg) rotateZ(-36deg)` }}>
               <div className="district-base">
                 <div className="river"><i /><i /></div>
@@ -245,7 +415,6 @@ export default function Home() {
                     aria-label={`Select ${building.name}`}
                   ><span className="building-top" /><span className="building-side-a" /><span className="building-side-b" /><i className="building-pin">{building.id === 7 ? "E-14" : building.id}</i></button>
                 ))}
-                {addedAssets.map((asset) => <button key={asset.id} className="added-asset" style={{ left: `${asset.x}%`, top: `${asset.y}%` }} onClick={(event) => { event.stopPropagation(); setToast("Backup Generator G-02 selected"); }}>G-02</button>)}
               </div>
             </div>
 
@@ -309,6 +478,28 @@ export default function Home() {
           </div>
         </aside>
       </section>
+
+      {assetLibraryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setAssetLibraryOpen(false)}>
+        <section className="asset-library" role="dialog" aria-modal="true" aria-labelledby="asset-library-title" onMouseDown={(event) => event.stopPropagation()}>
+          <header className="library-header">
+            <div><span>3D CONTENT CATALOGUE</span><h2 id="asset-library-title">Civic asset library</h2><p>Place optimized planning assets in the twin or download an OBJ for your own 3D pipeline.</p></div>
+            <button aria-label="Close asset library" onClick={() => setAssetLibraryOpen(false)}>×</button>
+          </header>
+          <div className="library-controls">
+            <label><span>⌕</span><input autoFocus value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search pumps, power, shelters…" /></label>
+            <div>{assetCategories.map((category) => <button key={category} className={assetCategory === category ? "active" : ""} onClick={() => setAssetCategory(category)}>{category}</button>)}</div>
+          </div>
+          <div className="asset-catalogue">
+            {filteredAssets.map((asset) => <article className="catalogue-card" key={asset.id}>
+              <div className={`catalogue-preview tone-${asset.tone}`}><span className={`asset-model model-${asset.id}`}><i /><b /></span><em>LOW POLY</em></div>
+              <div className="catalogue-copy"><span>{asset.category}</span><h3>{asset.name}</h3><p>{asset.description}</p><small>OBJ · Metric scale · {asset.size}</small></div>
+              <div className="catalogue-actions"><button className="place-button" onClick={() => beginAssetPlacement(asset)}>＋ Place in twin</button><button className="download-button" onClick={() => downloadAsset(asset)}>↓ Download OBJ</button></div>
+            </article>)}
+            {!filteredAssets.length && <div className="empty-assets"><strong>No assets found</strong><span>Try a different search or category.</span></div>}
+          </div>
+          <footer className="library-footer"><span><i /> 8 verified planning assets</span><p>All assets are lightweight, editable and generated for this MirrorCity prototype.</p></footer>
+        </section>
+      </div>}
 
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </main>
