@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import CityEngine from "./CityEngine";
 import ModelViewer from "./ModelViewer";
 
 type ScenarioKey = "sewer" | "flood" | "evacuation";
@@ -56,15 +57,6 @@ const lineKinds: Array<{ id: LineKind; label: string; color: string }> = [
   { id: "road", label: "Road", color: "#cbd4ce" },
 ];
 
-function getSegments(points: MapPoint[]) {
-  return points.slice(1).map((point, index) => {
-    const previous = points[index];
-    const dx = point.x - previous.x;
-    const dy = point.y - previous.y;
-    return { left: previous.x, top: previous.y, width: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) * 180 / Math.PI };
-  });
-}
-
 function buildObjAsset(asset: AssetDefinition) {
   const height = asset.id === "tower" ? 4 : asset.id === "barrier" ? .8 : asset.id === "manhole" ? .35 : 1.8;
   const width = asset.id === "barrier" ? 3 : asset.id === "shelter" || asset.id === "hospital" ? 2.8 : 1.6;
@@ -96,8 +88,6 @@ export default function Home() {
   const [plannedBuildings, setPlannedBuildings] = useState<PlannedBuilding[]>([]);
   const [buildingFloors, setBuildingFloors] = useState(4);
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
   const [importState, setImportState] = useState("IITH ground dataset · 11 PCD scans");
   const [toast, setToast] = useState("Digital twin synchronized · 2 min ago");
   const [addedAssets, setAddedAssets] = useState<PlacedAsset[]>([]);
@@ -108,10 +98,7 @@ export default function Home() {
   const [viewerAsset, setViewerAsset] = useState<AssetDefinition | null>(null);
   const [selectedPlacedAssetId, setSelectedPlacedAssetId] = useState<number | null>(null);
   const [replaceAssetId, setReplaceAssetId] = useState<number | null>(null);
-  const [movingAssetId, setMovingAssetId] = useState<number | null>(null);
-  const [placementPreview, setPlacementPreview] = useState<MapPoint | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const dragOrigin = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const selected = buildings.find((building) => building.id === selectedId) ?? buildings[6];
   const flow = Math.round(68 + (population - 1500) * 0.054);
@@ -159,8 +146,6 @@ export default function Home() {
         setAssetLibraryOpen(false);
         setViewerAsset(null);
         setReplaceAssetId(null);
-        setMovingAssetId(null);
-        setPlacementPreview(null);
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -200,7 +185,6 @@ export default function Home() {
   function selectTool(nextTool: ToolKey) {
     setDraftPoints([]);
     setSelectedPlacedAssetId(null);
-    setPlacementPreview(null);
     setTool(nextTool);
     if (nextTool === "line") setToast("Click points on the map, then finish the utility line");
     if (nextTool === "area") setToast("Click three or more points to mark a planning zone");
@@ -286,45 +270,8 @@ export default function Home() {
     setToast(`Click the map to place ${asset.name}`);
   }
 
-  function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (["asset", "line", "area", "building"].includes(tool)) return;
-    dragOrigin.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
-    setDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const point = {
-      x: Math.max(0, Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100)),
-      y: Math.max(0, Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100)),
-    };
-    if (movingAssetId !== null) {
-      setAddedAssets((current) => current.map((placed) => placed.id === movingAssetId ? { ...placed, ...point } : placed));
-      return;
-    }
-    if (tool === "asset") setPlacementPreview(point);
-    if (!dragging) return;
-    setPan({
-      x: dragOrigin.current.panX + event.clientX - dragOrigin.current.x,
-      y: dragOrigin.current.panY + event.clientY - dragOrigin.current.y,
-    });
-  }
-
-  function handlePointerUp(event: React.PointerEvent<HTMLDivElement>) {
-    if (movingAssetId !== null) {
-      setMovingAssetId(null);
-      setToast("Asset position updated · Unsaved change");
-      return;
-    }
-    setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-
-  function handleMapClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (dragging || !["asset", "line", "area", "building"].includes(tool)) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const point = { x: ((event.clientX - bounds.left) / bounds.width) * 100, y: ((event.clientY - bounds.top) / bounds.height) * 100 };
+  function handleMapPoint(point: MapPoint) {
+    if (!["asset", "line", "area", "building"].includes(tool)) return;
     if (tool === "line" || tool === "area") {
       setDraftPoints((current) => [...current, point]);
       return;
@@ -337,7 +284,6 @@ export default function Home() {
     const id = Date.now();
     setAddedAssets((current) => [...current, { id, x: point.x, y: point.y, rotation: 0, scale: 1, asset: selectedAsset }]);
     setSelectedPlacedAssetId(id);
-    setPlacementPreview(null);
     setTool("select");
     setToast(`${selectedAsset.name} placed · Unsaved change`);
   }
@@ -488,43 +434,26 @@ export default function Home() {
             <div className="edit-asset-actions"><button onClick={() => duplicatePlacedAsset(selectedPlacedAsset)}>⧉ Duplicate</button><button onClick={() => { setReplaceAssetId(selectedPlacedAsset.id); setAssetCategory("All"); setAssetLibraryOpen(true); }}>↺ Replace</button><button className="delete-action" onClick={() => deletePlacedAsset(selectedPlacedAsset.id)}>Delete</button></div>
           </div>}
 
-          <div
-            className={`map-stage tool-${tool} ${dragging ? "dragging" : ""}`}
-            role="button"
-            aria-label="Interactive district map"
-            tabIndex={0}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={() => { if (movingAssetId === null) setPlacementPreview(null); }}
-            onClick={handleMapClick}
-            onKeyDown={(event) => { if (event.key === "Escape") { setDraftPoints([]); setTool("select"); } }}
-          >
-            <div className="map-glow" />
-            <div className="author-layer" aria-label="User-created map geometry">
-              {drawnAreas.map((area) => <div key={area.id} className="drawn-area" style={{ clipPath: `polygon(${area.points.map((point) => `${point.x}% ${point.y}%`).join(",")})` }} />)}
-              {tool === "area" && draftPoints.length >= 3 && <div className="drawn-area draft" style={{ clipPath: `polygon(${draftPoints.map((point) => `${point.x}% ${point.y}%`).join(",")})` }} />}
-              {[...drawnLines, ...(tool === "line" && draftPoints.length > 1 ? [{ id: -1, kind: lineKind, points: draftPoints }] : [])].flatMap((line) => getSegments(line.points).map((segment, index) => <i key={`${line.id}-${index}`} className={`user-line kind-${line.kind} ${line.id === -1 ? "draft" : ""}`} style={{ left: `${segment.left}%`, top: `${segment.top}%`, width: `${segment.width}%`, transform: `rotate(${segment.angle}deg)` }} />))}
-              {draftPoints.map((point, index) => <i key={`point-${index}`} className="draft-point" style={{ left: `${point.x}%`, top: `${point.y}%` }}>{index + 1}</i>)}
-              {plannedBuildings.map((building) => <button key={building.id} className="planned-building" style={{ left: `${building.x}%`, top: `${building.y}%`, "--floors": building.floors } as React.CSSProperties} onClick={(event) => { if (["asset", "line", "area", "building"].includes(tool)) return; event.stopPropagation(); setToast(`Proposed ${building.floors}-floor building selected`); }}><i /><b>{building.floors}F</b></button>)}
-              {placementPreview && tool === "asset" && <div className={`asset-placement-ghost tone-${selectedAsset.tone} ${selectedAsset.preview ? "is-terrain" : ""}`} style={{ left: `${placementPreview.x}%`, top: `${placementPreview.y}%`, backgroundImage: selectedAsset.preview ? `url(${selectedAsset.preview})` : undefined }}><i>{selectedAsset.code}</i><span>CLICK TO PLACE</span></div>}
-              {addedAssets.map((asset) => <button
-                key={asset.id}
-                className={`placed-map-asset tone-${asset.asset.tone} ${asset.asset.preview ? "is-terrain" : ""} ${selectedPlacedAssetId === asset.id ? "selected" : ""} ${movingAssetId === asset.id ? "moving" : ""}`}
-                style={{ left: `${asset.x}%`, top: `${asset.y}%`, transform: `translate(-50%,-50%) rotate(${asset.rotation}deg) scale(${asset.scale})`, backgroundImage: asset.asset.preview ? `url(${asset.asset.preview})` : undefined }}
-                onPointerDown={(event) => { if (tool === "asset") return; event.stopPropagation(); setSelectedPlacedAssetId(asset.id); setMovingAssetId(asset.id); setTool("select"); }}
-                onClick={(event) => { if (tool === "asset") return; event.stopPropagation(); setSelectedPlacedAssetId(asset.id); setTool("select"); setToast(`${asset.asset.name} selected · drag to move`); }}
-                onKeyDown={(event) => {
-                  const delta = event.shiftKey ? 5 : 1;
-                  if (event.key === "ArrowLeft") updatePlacedAsset(asset.id, { x: Math.max(0, asset.x - delta) });
-                  if (event.key === "ArrowRight") updatePlacedAsset(asset.id, { x: Math.min(100, asset.x + delta) });
-                  if (event.key === "ArrowUp") updatePlacedAsset(asset.id, { y: Math.max(0, asset.y - delta) });
-                  if (event.key === "ArrowDown") updatePlacedAsset(asset.id, { y: Math.min(100, asset.y + delta) });
-                  if (event.key === "Delete" || event.key === "Backspace") deletePlacedAsset(asset.id);
-                }}
-                aria-label={`${asset.asset.name}. Drag to move, arrow keys to nudge.`}
-              ><i>{asset.asset.code}</i><span>{asset.asset.name}</span></button>)}
-            </div>
+          <div className={`map-stage tool-${tool}`} role="region" aria-label="Interactive 3D district twin">
+            <CityEngine
+              tool={tool}
+              buildings={buildings}
+              placedAssets={addedAssets}
+              plannedBuildings={plannedBuildings}
+              drawnLines={drawnLines}
+              drawnAreas={drawnAreas}
+              draftPoints={draftPoints}
+              lineKind={lineKind}
+              selectedAsset={selectedAsset}
+              selectedPlacedAssetId={selectedPlacedAssetId}
+              selectedBuildingId={selectedId}
+              layers={layers}
+              zoom={zoom}
+              onMapPoint={handleMapPoint}
+              onSelectAsset={(id) => { setSelectedPlacedAssetId(id); setTool("select"); setToast("3D asset selected · drag it across the ground"); }}
+              onMoveAsset={(id, point) => updatePlacedAsset(id, point)}
+              onSelectBuilding={(id) => { setSelectedId(id); setSelectedPlacedAssetId(null); setInspectorTab("object"); setTool("select"); }}
+            />
             {operationalMode && <div className="operations-layer" aria-label="Live district operations">
               {layers.mobility && <div className="live-fleet"><i className="vehicle v1">B12</i><i className="vehicle v2">A03</i><i className="vehicle v3">T41</i><i className="vehicle v4">E07</i></div>}
               {layers.sensors && <div className="sensor-feed"><button className="sensor s1" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Flow sensor SW-18 · 42.6 L/s"); }}>42.6</button><button className="sensor s2" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Air quality station AQ-04 · Good"); }}>AQ</button><button className="sensor s3" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Grid monitor E-14 · 71% load"); }}>71%</button></div>}
@@ -533,25 +462,6 @@ export default function Home() {
               <span className="live-tick">FEED #{String(liveTick + 1842).padStart(6, "0")}</span>
             </div>}
             {compareMode && <div className="compare-overlay"><span className="compare-label current">CURRENT</span><span className="compare-label proposed">PROPOSED 2035</span><i className="compare-divider" /><div className="proposed-corridor"><i /><i /><i /></div></div>}
-            <div className="city-world" style={{ transform: `translate(calc(-50% + ${pan.x}px), calc(-48% + ${pan.y}px)) scale(${zoom}) rotateX(57deg) rotateZ(-36deg)` }}>
-              <div className="district-base">
-                <div className="river"><i /><i /></div>
-                <div className="road road-a" /><div className="road road-b" /><div className="road road-c" /><div className="road road-d" />
-                <div className="block-grid" />
-                {layers.sewer && <div className={`network sewer-network ${activeScenario === "sewer" && running ? "flowing" : ""}`}><i className="pipe p1" /><i className="pipe p2" /><i className="pipe p3" /><i className="pipe p4" /><i className="node n1" /><i className="node n2" /><i className="node n3 warning" /><i className="node n4" /></div>}
-                {layers.power && <div className="network power-network"><i className="power-line l1" /><i className="power-line l2" /><i className="power-line l3" /><i className="power-node pn1" /><i className="power-node pn2" /><i className="power-node pn3" /></div>}
-                {layers.mobility && <div className="mobility-network"><i /><i /><i /><i /><i /></div>}
-                {layers.buildings && buildings.map((building) => (
-                  <button
-                    key={building.id}
-                    className={`building tone-${building.tone} ${selectedId === building.id ? "selected" : ""}`}
-                    style={{ left: `${building.x}%`, top: `${building.y}%`, width: building.w, height: building.d, "--height": `${building.h}px` } as React.CSSProperties}
-                    onClick={(event) => { if (["asset", "line", "area", "building"].includes(tool)) return; event.stopPropagation(); setSelectedId(building.id); setTool("select"); }}
-                    aria-label={`Select ${building.name}`}
-                  ><span className="building-top" /><span className="building-side-a" /><span className="building-side-b" /><i className="building-pin">{building.id === 7 ? "E-14" : building.id}</i></button>
-                ))}
-              </div>
-            </div>
 
             <div className="north-indicator"><b>N</b><span /></div>
             <div className="zoom-control">

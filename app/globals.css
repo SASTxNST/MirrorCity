@@ -114,6 +114,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--lime); outl
 .map-stage { position: absolute; inset: 0 0 47px; overflow: hidden; cursor: grab; touch-action: none; background: radial-gradient(circle at 52% 40%, #33433d 0, #222d29 38%, #19201e 72%); }
 .map-stage.dragging { cursor: grabbing; }
 .map-stage.tool-select { cursor: default; }.map-stage.tool-measure, .map-stage.tool-line, .map-stage.tool-area { cursor: crosshair; }.map-stage.tool-asset, .map-stage.tool-building { cursor: cell; }
+.city-engine { position: absolute; z-index: 1; inset: 0; overflow: hidden; background: radial-gradient(circle at 52% 35%, #2d3c36, #17201d 72%); }
+.city-engine canvas { width: 100%; height: 100%; display: block; cursor: grab; outline: none; }
+.city-engine canvas:active { cursor: grabbing; }
+.tool-asset .city-engine canvas, .tool-building .city-engine canvas { cursor: cell; }.tool-line .city-engine canvas, .tool-area .city-engine canvas { cursor: crosshair; }
+.engine-badge, .engine-help { position: absolute; z-index: 3; pointer-events: none; color: #95a39c; background: rgba(13,18,16,.72); border: 1px solid rgba(210,230,220,.1); border-radius: 3px; backdrop-filter: blur(8px); font: 700 6px var(--font-geist-mono), monospace; letter-spacing: .11em; }
+.engine-badge { left: 14px; bottom: 43px; padding: 6px 8px; color: var(--lime); }.engine-badge i { width: 6px; height: 6px; display: inline-block; margin-right: 6px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 8px var(--lime); animation: livePulse 1.7s ease-in-out infinite; }
+.engine-help { left: 50%; bottom: 43px; transform: translateX(-50%); padding: 6px 8px; white-space: nowrap; }
 .map-stage::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(137,159,150,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(137,159,150,.055) 1px, transparent 1px); background-size: 34px 34px; transform: perspective(700px) rotateX(57deg) rotateZ(-36deg) scale(1.8); opacity: .6; }
 .map-glow { position: absolute; left: 15%; top: 20%; width: 70%; height: 55%; background: radial-gradient(ellipse, rgba(73,124,105,.18), transparent 66%); filter: blur(20px); }
 .map-tools { position: absolute; z-index: 12; top: 48px; left: 13px; display: flex; padding: 3px; background: rgba(17,23,21,.9); border: 1px solid var(--line); border-radius: 5px; box-shadow: 0 8px 20px rgba(0,0,0,.2); }
