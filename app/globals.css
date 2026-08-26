@@ -308,3 +308,83 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--lime); outl
   .simulation-title { padding-top: 12px; padding-bottom: 10px; }
   .selected-object { padding-bottom: 10px; }
 }
+
+/* ── Loading overlay ─────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: #17201d;
+  color: #c9f36d;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  z-index: 9999;
+}
+.loading-glyph {
+  display: flex;
+  gap: 5px;
+}
+.loading-glyph i {
+  width: 7px;
+  height: 7px;
+  background: #c9f36d;
+  border-radius: 1px;
+  animation: loading-pulse 1.2s ease-in-out infinite;
+}
+.loading-glyph i:nth-child(2) { animation-delay: 0.2s; }
+.loading-glyph i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes loading-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scaleY(1); }
+  40% { opacity: 1; transform: scaleY(1.6); }
+}
+
+/* ── CityEngine error boundary ───────────────────────────────── */
+.engine-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #17201d;
+}
+.engine-error-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  max-width: 320px;
+  padding: 32px;
+}
+.engine-error-icon {
+  font-size: 28px;
+  color: #ffbb38;
+}
+.engine-error-inner strong {
+  color: #e8ede8;
+  font-size: 14px;
+}
+.engine-error-inner span {
+  color: #8a9e8a;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+.engine-error-inner button {
+  margin-top: 8px;
+  padding: 8px 20px;
+  background: #c9f36d;
+  color: #1a2a1a;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.engine-error-inner button:hover { background: #d4f87a; }

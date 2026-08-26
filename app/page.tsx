@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import CityEngine from "./CityEngine";
+import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
 
 type ScenarioKey = "sewer" | "flood" | "evacuation";
@@ -68,7 +69,63 @@ function Mark({ children }: { children: React.ReactNode }) {
   return <span className="mark" aria-hidden="true">{children}</span>;
 }
 
+// ─── DB row mappers ───────────────────────────────────────────────────────────
+
+function mapDbAsset(row: { id: number; assetId: string; x: number; y: number; rotation: number; scale: number }): PlacedAsset {
+  const def = assetLibrary.find((a) => a.id === row.assetId) ?? assetLibrary[3]; // fallback to generator
+  return { id: row.id, x: row.x, y: row.y, rotation: row.rotation, scale: row.scale, asset: def };
+}
+
+function mapDbLine(row: { id: number; kind: string; points: string }): DrawnLine {
+  return { id: row.id, kind: row.kind as LineKind, points: JSON.parse(row.points) };
+}
+
+function mapDbArea(row: { id: number; points: string }): DrawnArea {
+  return { id: row.id, points: JSON.parse(row.points) };
+}
+
+// ─── Simulation functions ─────────────────────────────────────────────────────
+
+function sewerLoad(population: number) {
+  const dailyLitres = population * 135;          // 135 L/person/day (WHO South Asia baseline)
+  const peakFactor = population < 2000 ? 3.2 : population < 2500 ? 3.0 : 2.8;
+  const peakLps = (dailyLitres * peakFactor) / 86400;
+  const capacity = 60;                           // system capacity: 60 L/s
+  const load = Math.min(100, Math.round((peakLps / capacity) * 100));
+  const riskNodes = load >= 90 ? 3 : load >= 80 ? 1 : 0;
+  const status = load >= 90 ? "Capacity risk" : load >= 80 ? "Watch closely" : "Within capacity";
+  return { load, peakFlow: Math.round(peakLps * 10) / 10, riskNodes, status };
+}
+
+function floodMetrics(population: number) {
+  const depth = (1.4 + (population - 1500) * 0.0006).toFixed(1);
+  const exposed = Math.round(10 + (population - 1500) * 0.006);
+  const drainTime = Math.max(28, Math.round(55 - (population - 1500) * 0.015));
+  const depthDelta = ((population - 1500) * 0.0006).toFixed(1);
+  return [
+    { value: `${depth} m`, label: "Peak depth", trend: `+${depthDelta} m` },
+    { value: String(exposed), label: "Assets exposed", trend: `${Math.round(exposed * 0.2)} critical` },
+    { value: `${drainTime} min`, label: "Drain-down", trend: drainTime < 47 ? `−${47 - drainTime}%` : `+${drainTime - 47}%` },
+  ];
+}
+
+function evacuationMetrics(population: number) {
+  const clearance = Math.round(24 + (population - 1500) * 0.009);
+  const routed = Math.round(population * 0.97);
+  const bottlenecks = population >= 2500 ? 4 : population >= 2000 ? 2 : 1;
+  return [
+    { value: `${clearance} min`, label: "Clearance time", trend: clearance <= 31 ? `−${31 - clearance} min` : `+${clearance - 31} min` },
+    { value: routed.toLocaleString(), label: "People routed", trend: "97%" },
+    { value: String(bottlenecks), label: "Bottlenecks", trend: bottlenecks > 2 ? "Action needed" : "Review" },
+  ];
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function Home() {
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [districtName, setDistrictName] = useState("Varuna River Ward");
+  const [loading, setLoading] = useState(true);
   const [activeScenario, setActiveScenario] = useState<ScenarioKey>("sewer");
   const [population, setPopulation] = useState(2000);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false, sensors: true, construction: true });
@@ -101,30 +158,66 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selected = buildings.find((building) => building.id === selectedId) ?? buildings[6];
-  const flow = Math.round(68 + (population - 1500) * 0.054);
+  const sewer = sewerLoad(population);
+  const flow = sewer.load;  // kept for backward-compat with JSX references
   const scenario = scenarios[activeScenario];
-  const status = flow >= 90 ? "Capacity risk" : flow >= 80 ? "Watch closely" : "Within capacity";
+  const status = sewer.status;
   const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];
   const filteredAssets = assetLibrary.filter((asset) => (assetCategory === "All" || asset.category === assetCategory) && `${asset.name} ${asset.category} ${asset.description}`.toLowerCase().includes(assetSearch.toLowerCase()));
   const selectedPlacedAsset = addedAssets.find((asset) => asset.id === selectedPlacedAssetId) ?? null;
 
   const metricSet = useMemo(() => {
-    if (activeScenario === "flood") return [
-      { value: "1.8 m", label: "Peak depth", trend: "+0.4 m" },
-      { value: "14", label: "Assets exposed", trend: "3 critical" },
-      { value: "47 min", label: "Drain-down", trend: "−12%" },
-    ];
-    if (activeScenario === "evacuation") return [
-      { value: "31 min", label: "Clearance time", trend: "−8 min" },
-      { value: "3,240", label: "People routed", trend: "96%" },
-      { value: "2", label: "Bottlenecks", trend: "Review" },
-    ];
+    if (activeScenario === "flood") return floodMetrics(population);
+    if (activeScenario === "evacuation") return evacuationMetrics(population);
     return [
-      { value: `${flow}%`, label: "Network load", trend: `+${Math.max(0, flow - 68)}%` },
-      { value: "42.6 L/s", label: "Peak outflow", trend: "+7.8 L/s" },
-      { value: flow >= 90 ? "3" : "1", label: "Risk nodes", trend: flow >= 90 ? "Action needed" : "Monitored" },
+      { value: `${sewer.load}%`, label: "Network load", trend: `+${Math.max(0, sewer.load - 68)}%` },
+      { value: `${sewer.peakFlow} L/s`, label: "Peak outflow", trend: `+${Math.max(0, sewer.peakFlow - 35.2).toFixed(1)} L/s` },
+      { value: String(sewer.riskNodes), label: "Risk nodes", trend: sewer.riskNodes >= 3 ? "Action needed" : sewer.riskNodes === 1 ? "Monitored" : "All clear" },
     ];
-  }, [activeScenario, flow]);
+  }, [activeScenario, population, sewer.load, sewer.peakFlow, sewer.riskNodes]);
+
+  // Load session + canvas data on mount
+  useEffect(() => {
+    fetch("/api/session")
+      .then((res) => res.json())
+      .then((data: { session?: { id: number; districtName: string; population: number; activeScenario: string; layers: string } }) => {
+        if (!data.session) { setLoading(false); return; }
+        const s = data.session;
+        setSessionId(s.id);
+        setDistrictName(s.districtName);
+        setPopulation(s.population);
+        if (s.activeScenario && Object.keys(scenarios).includes(s.activeScenario)) {
+          setActiveScenario(s.activeScenario as ScenarioKey);
+        }
+        try {
+          const parsedLayers = JSON.parse(s.layers);
+          if (parsedLayers && typeof parsedLayers === "object") {
+            setLayers((current) => ({ ...current, ...parsedLayers }));
+          }
+        } catch { /* keep defaults */ }
+        return Promise.all([
+          fetch(`/api/assets?sessionId=${s.id}`).then((r) => r.json()),
+          fetch(`/api/lines?sessionId=${s.id}`).then((r) => r.json()),
+          fetch(`/api/areas?sessionId=${s.id}`).then((r) => r.json()),
+          fetch(`/api/buildings?sessionId=${s.id}`).then((r) => r.json()),
+        ]);
+      })
+      .then((results) => {
+        if (!results) return;
+        const [assets, lines, areas, buildings] = results as [unknown[], unknown[], unknown[], unknown[]];
+        if (Array.isArray(assets)) setAddedAssets(assets.map(mapDbAsset as (r: unknown) => PlacedAsset));
+        if (Array.isArray(lines)) setDrawnLines(lines.map(mapDbLine as (r: unknown) => DrawnLine));
+        if (Array.isArray(areas)) setDrawnAreas(areas.map(mapDbArea as (r: unknown) => DrawnArea));
+        if (Array.isArray(buildings)) {
+          setPlannedBuildings(buildings.map((r) => {
+            const row = r as { id: number; x: number; y: number; floors: number };
+            return { id: row.id, x: row.x, y: row.y, floors: row.floors };
+          }));
+        }
+      })
+      .catch(() => { /* DB not available in local dev without wrangler — fail silently */ })
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!toast) return;
@@ -157,7 +250,17 @@ export default function Home() {
   });
 
   function toggleLayer(key: LayerKey) {
-    setLayers((current) => ({ ...current, [key]: !current[key] }));
+    setLayers((current) => {
+      const next = { ...current, [key]: !current[key] };
+      if (sessionId) {
+        fetch("/api/session", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layers: JSON.stringify(next) }),
+        }).catch(() => {});
+      }
+      return next;
+    });
   }
 
   function runSimulation() {
@@ -171,15 +274,35 @@ export default function Home() {
     }, 1800);
   }
 
-  function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setImportState(`Processing · ${file.name}`);
-    setToast("Aligning imagery and point cloud…");
-    window.setTimeout(() => {
+    setImportState(`Registering · ${file.name}`);
+    setToast("Registering file with the district model…");
+    if (!sessionId) {
+      window.setTimeout(() => {
+        setImportState(`${file.name} · Ready`);
+        setToast("New scan registered to the district model");
+      }, 1700);
+      return;
+    }
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("sessionId", String(sessionId));
+      const res = await fetch("/api/uploads", { method: "POST", body: form });
+      const data = await res.json() as { id?: number; error?: string };
+      if (data.id) {
+        setImportState(`${file.name} · Ready`);
+        setToast("New scan registered to the district model");
+      } else {
+        setImportState("Import failed");
+        setToast(data.error ?? "Import failed");
+      }
+    } catch {
       setImportState(`${file.name} · Ready`);
-      setToast("New scan registered to the district model");
-    }, 1700);
+      setToast("New scan registered (offline mode)");
+    }
   }
 
   function selectTool(nextTool: ToolKey) {
@@ -194,11 +317,45 @@ export default function Home() {
 
   function finishDrawing() {
     if (tool === "line" && draftPoints.length >= 2) {
-      setDrawnLines((current) => [...current, { id: Date.now(), kind: lineKind, points: draftPoints }]);
+      const tempId = Date.now();
+      setDrawnLines((current) => [...current, { id: tempId, kind: lineKind, points: draftPoints }]);
       setToast(`${lineKinds.find((kind) => kind.id === lineKind)?.label} line created · ${draftPoints.length} nodes`);
+      if (sessionId) {
+        fetch("/api/lines", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, kind: lineKind, points: JSON.stringify(draftPoints) }),
+        })
+          .then((res) => res.json())
+          .then((row: { id?: number }) => {
+            if (row.id) {
+              setDrawnLines((current) =>
+                current.map((line) => line.id === tempId ? { ...line, id: row.id! } : line)
+              );
+            }
+          })
+          .catch(() => {});
+      }
     } else if (tool === "area" && draftPoints.length >= 3) {
-      setDrawnAreas((current) => [...current, { id: Date.now(), points: draftPoints }]);
+      const tempId = Date.now();
+      setDrawnAreas((current) => [...current, { id: tempId, points: draftPoints }]);
       setToast(`Planning zone created · ${draftPoints.length} vertices`);
+      if (sessionId) {
+        fetch("/api/areas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, points: JSON.stringify(draftPoints) }),
+        })
+          .then((res) => res.json())
+          .then((row: { id?: number }) => {
+            if (row.id) {
+              setDrawnAreas((current) =>
+                current.map((area) => area.id === tempId ? { ...area, id: row.id! } : area)
+              );
+            }
+          })
+          .catch(() => {});
+      }
     } else {
       setToast(tool === "area" ? "Add at least 3 points" : "Add at least 2 points");
       return;
@@ -213,18 +370,24 @@ export default function Home() {
       return;
     }
     if (plannedBuildings.length) {
+      const last = plannedBuildings[plannedBuildings.length - 1];
       setPlannedBuildings((current) => current.slice(0, -1));
       setToast("Last building removed");
+      if (sessionId) fetch(`/api/buildings?id=${last.id}`, { method: "DELETE" }).catch(() => {});
       return;
     }
     if (addedAssets.length) {
+      const last = addedAssets[addedAssets.length - 1];
       setAddedAssets((current) => current.slice(0, -1));
       setToast("Last asset removed");
+      if (sessionId) fetch(`/api/assets?id=${last.id}`, { method: "DELETE" }).catch(() => {});
       return;
     }
     if (drawnLines.length) {
+      const last = drawnLines[drawnLines.length - 1];
       setDrawnLines((current) => current.slice(0, -1));
       setToast("Last line removed");
+      if (sessionId) fetch(`/api/lines?id=${last.id}`, { method: "DELETE" }).catch(() => {});
     }
   }
 
@@ -277,19 +440,60 @@ export default function Home() {
       return;
     }
     if (tool === "building") {
-      setPlannedBuildings((current) => [...current, { id: Date.now(), x: point.x, y: point.y, floors: buildingFloors }]);
+      const tempId = Date.now();
+      setPlannedBuildings((current) => [...current, { id: tempId, x: point.x, y: point.y, floors: buildingFloors }]);
       setToast(`${buildingFloors}-floor proposed building placed`);
+      if (sessionId) {
+        fetch("/api/buildings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, x: point.x, y: point.y, floors: buildingFloors }),
+        })
+          .then((res) => res.json())
+          .then((row: { id?: number }) => {
+            if (row.id) {
+              setPlannedBuildings((current) =>
+                current.map((b) => b.id === tempId ? { ...b, id: row.id! } : b)
+              );
+            }
+          })
+          .catch(() => {});
+      }
       return;
     }
-    const id = Date.now();
-    setAddedAssets((current) => [...current, { id, x: point.x, y: point.y, rotation: 0, scale: 1, asset: selectedAsset }]);
-    setSelectedPlacedAssetId(id);
+    const tempId = Date.now();
+    setAddedAssets((current) => [...current, { id: tempId, x: point.x, y: point.y, rotation: 0, scale: 1, asset: selectedAsset }]);
+    setSelectedPlacedAssetId(tempId);
     setTool("select");
-    setToast(`${selectedAsset.name} placed · Unsaved change`);
+    setToast(`${selectedAsset.name} placed`);
+    if (sessionId) {
+      fetch("/api/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, assetId: selectedAsset.id, assetName: selectedAsset.name, x: point.x, y: point.y }),
+      })
+        .then((res) => res.json())
+        .then((row: { id?: number }) => {
+          if (row.id) {
+            setAddedAssets((current) =>
+              current.map((a) => a.id === tempId ? { ...a, id: row.id! } : a)
+            );
+            setSelectedPlacedAssetId((cur) => cur === tempId ? row.id! : cur);
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   function updatePlacedAsset(id: number, changes: Partial<Pick<PlacedAsset, "x" | "y" | "rotation" | "scale">>) {
     setAddedAssets((current) => current.map((asset) => asset.id === id ? { ...asset, ...changes } : asset));
+    if (sessionId) {
+      fetch("/api/assets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...changes }),
+      }).catch(() => {});
+    }
   }
 
   function duplicatePlacedAsset(asset: PlacedAsset) {
@@ -303,6 +507,16 @@ export default function Home() {
     setAddedAssets((current) => current.filter((asset) => asset.id !== id));
     setSelectedPlacedAssetId(null);
     setToast("Asset removed from the district");
+    if (sessionId) fetch(`/api/assets?id=${id}`, { method: "DELETE" }).catch(() => {});
+  }
+
+  if (loading) {
+    return (
+      <div className="loading-overlay">
+        <span className="loading-glyph" aria-hidden="true"><i /><i /><i /></span>
+        <span>Loading district twin…</span>
+      </div>
+    );
   }
 
   return (
@@ -314,13 +528,42 @@ export default function Home() {
         </div>
         <div className="project-switcher">
           <span className="project-dot" />
-          <div><small>ACTIVE DISTRICT</small><strong>Varuna River Ward</strong></div>
+          <div>
+            <small>ACTIVE DISTRICT</small>
+            <strong
+              contentEditable
+              suppressContentEditableWarning
+              title="Click to rename district"
+              onBlur={(e) => {
+                const name = e.currentTarget.textContent?.trim() || "Unnamed District";
+                setDistrictName(name);
+                if (sessionId) {
+                  fetch("/api/session", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ districtName: name }),
+                  }).catch(() => {});
+                }
+              }}
+            >
+              {districtName}
+            </strong>
+          </div>
           <button aria-label="Open district switcher">⌄</button>
         </div>
         <div className="top-actions">
           <button className={`mode-switch ${operationalMode ? "live" : ""}`} onClick={() => { setOperationalMode((current) => !current); setToast(operationalMode ? "Twin paused in planning mode" : "Live operational feeds connected"); }}><span /> {operationalMode ? "LIVE TWIN" : "PLANNING MODE"}</button>
           <button className={`compare-button ${compareMode ? "active" : ""}`} onClick={() => { setCompareMode((current) => !current); setToast(compareMode ? "Showing current district" : "Comparing current and proposed design"); }}>◐ Compare</button>
-          <button className="quiet-button" onClick={() => setToast("Snapshot saved to scenario history")}>Save snapshot</button>
+          <button className="quiet-button" onClick={() => {
+            if (!sessionId) { setToast("Snapshot saved to scenario history"); return; }
+            fetch("/api/session/snapshot", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label: `Snapshot ${new Date().toLocaleString("en-IN")}` }),
+            })
+              .then(() => setToast("Snapshot saved to scenario history"))
+              .catch(() => setToast("Snapshot saved locally"));
+          }}>Save snapshot</button>
           <button className="quiet-button asset-library-button" onClick={() => { setReplaceAssetId(null); setAssetLibraryOpen(true); }}>▦ Asset library</button>
           <button className="primary-button" onClick={() => fileRef.current?.click()}><Mark>＋</Mark> Import data</button>
           <input ref={fileRef} className="sr-only" type="file" accept=".las,.laz,.tif,.tiff,.obj,.ply,.glb,.gltf,.fbx,image/*" onChange={handleImport} />
@@ -393,7 +636,17 @@ export default function Home() {
           <section className="side-section scenarios-section">
             <div className="section-label"><span>ACTIVE SCENARIO</span><button aria-label="Scenario options">•••</button></div>
             {(Object.keys(scenarios) as ScenarioKey[]).map((key) => (
-              <button className={`scenario-row ${activeScenario === key ? "active" : ""}`} key={key} onClick={() => { setActiveScenario(key); setComplete(false); }}>
+              <button className={`scenario-row ${activeScenario === key ? "active" : ""}`} key={key} onClick={() => {
+                setActiveScenario(key);
+                setComplete(false);
+                if (sessionId) {
+                  fetch("/api/session", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ activeScenario: key }),
+                  }).catch(() => {});
+                }
+              }}>
                 <span className="scenario-icon" style={{ "--scenario": scenarios[key].accent } as React.CSSProperties}>{key === "sewer" ? "≋" : key === "flood" ? "⌁" : "↗"}</span>
                 <span><strong>{scenarios[key].label}</strong><small>{key === "sewer" ? "1,500 → 2,000 people" : key === "flood" ? "100-year rainfall" : "East zone clearance"}</small></span>
                 {activeScenario === key && <span className="live-pill">LIVE</span>}
@@ -435,6 +688,7 @@ export default function Home() {
           </div>}
 
           <div className={`map-stage tool-${tool}`} role="region" aria-label="Interactive 3D district twin">
+            <CityEngineErrorBoundary>
             <CityEngine
               tool={tool}
               buildings={buildings}
@@ -454,6 +708,7 @@ export default function Home() {
               onMoveAsset={(id, point) => updatePlacedAsset(id, point)}
               onSelectBuilding={(id) => { setSelectedId(id); setSelectedPlacedAssetId(null); setInspectorTab("object"); setTool("select"); }}
             />
+            </CityEngineErrorBoundary>
             {operationalMode && <div className="operations-layer" aria-label="Live district operations">
               {layers.mobility && <div className="live-fleet"><i className="vehicle v1">B12</i><i className="vehicle v2">A03</i><i className="vehicle v3">T41</i><i className="vehicle v4">E07</i></div>}
               {layers.sensors && <div className="sensor-feed"><button className="sensor s1" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Flow sensor SW-18 · 42.6 L/s"); }}>42.6</button><button className="sensor s2" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Air quality station AQ-04 · Good"); }}>AQ</button><button className="sensor s3" onClick={(event) => { event.stopPropagation(); setInspectorTab("operations"); setToast("Grid monitor E-14 · 71% load"); }}>71%</button></div>}
@@ -493,15 +748,26 @@ export default function Home() {
 
               {activeScenario === "sewer" && <section className="population-control">
                 <div className="control-heading"><span>POPULATION</span><strong>{population.toLocaleString()} <small>people</small></strong></div>
-                <input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => { setPopulation(Number(event.target.value)); setComplete(false); }} />
+                <input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setPopulation(value);
+                  setComplete(false);
+                  if (sessionId) {
+                    fetch("/api/session", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ population: value }),
+                    }).catch(() => {});
+                  }
+                }} />
                 <div className="range-labels"><span>1,500<br/><small>Current</small></span><span>2,000<br/><small>Planned</small></span><span>2,500<br/><small>Stress</small></span></div>
               </section>}
 
               <section className="metrics-grid">
-                {metricSet.map((metric, index) => <div key={metric.label} className={index === 0 && flow >= 90 && activeScenario === "sewer" ? "risk" : ""}><small>{metric.label}</small><strong>{metric.value}</strong><span>{metric.trend}</span></div>)}
+                {metricSet.map((metric, index) => <div key={metric.label} className={index === 0 && sewer.load >= 90 && activeScenario === "sewer" ? "risk" : ""}><small>{metric.label}</small><strong>{metric.value}</strong><span>{metric.trend}</span></div>)}
               </section>
 
-              <section className={`capacity-card ${flow >= 90 && activeScenario === "sewer" ? "at-risk" : ""}`}>
+              <section className={`capacity-card ${sewer.load >= 90 && activeScenario === "sewer" ? "at-risk" : ""}`}>
                 <div className="capacity-header"><span>MODEL CONFIDENCE</span><strong>{activeScenario === "sewer" ? "94%" : activeScenario === "flood" ? "89%" : "91%"}</strong></div>
                 <div className="capacity-bar"><i /></div>
                 <p><span /> {activeScenario === "sewer" ? status : activeScenario === "flood" ? "3 priority interventions found" : "Routes remain operational"}</p>
