@@ -159,7 +159,6 @@ export default function Home() {
 
   const selected = buildings.find((building) => building.id === selectedId) ?? buildings[6];
   const sewer = sewerLoad(population);
-  const flow = sewer.load;  // kept for backward-compat with JSX references
   const scenario = scenarios[activeScenario];
   const status = sewer.status;
   const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];

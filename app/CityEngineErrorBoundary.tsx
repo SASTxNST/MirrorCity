@@ -11,20 +11,17 @@ interface State {
 }
 
 export class CityEngineErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { error: null };
-  }
+  state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
   }
 
-  override componentDidCatch(error: Error) {
+  componentDidCatch(error: Error) {
     console.error("[CityEngine] Render error:", error);
   }
 
-  override render() {
+  render() {
     if (this.state.error) {
       return (
         <div className="engine-error">
