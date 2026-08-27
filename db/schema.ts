@@ -53,6 +53,43 @@ export const plannedBuildings = sqliteTable("planned_buildings", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+// ─── Room-scale digital twin ──────────────────────────────────────────────────
+
+// A physical room being twinned
+export const rooms = sqliteTable("rooms", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().default("Unnamed Room"),
+  glbPath: text("glb_path").notNull().default("/models/room/room.glb"),
+  widthM: real("width_m").notNull().default(6),
+  depthM: real("depth_m").notNull().default(5),
+  heightM: real("height_m").notNull().default(3),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// A physical sensor node (ESP8266/ESP32) inside a room
+export const sensors = sqliteTable("sensors", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  roomId: integer("room_id").notNull(),
+  hardwareId: text("hardware_id").notNull(),   // MAC-derived id from the device e.g. "ESP_A1B2"
+  name: text("name").notNull().default("Sensor"),
+  type: text("type").notNull().default("env"), // "env" | "occupancy" | "co2" | "multi"
+  x: real("x").notNull().default(0.5),         // 0–1 normalised position in the room model
+  y: real("y").notNull().default(0.7),         // height fraction
+  z: real("z").notNull().default(0.5),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// One row per metric reading from a sensor
+export const sensorReadings = sqliteTable("sensor_readings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sensorId: integer("sensor_id").notNull(),
+  metric: text("metric").notNull(),            // "temperature" | "humidity" | "occupancy" | "co2"
+  value: real("value").notNull(),
+  unit: text("unit").notNull(),                // "°C" | "%" | "bool" | "ppm"
+  recordedAt: text("recorded_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 // Uploaded data files (metadata only)
 export const uploads = sqliteTable("uploads", {
   id: integer("id").primaryKey({ autoIncrement: true }),
