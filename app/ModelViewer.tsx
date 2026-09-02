@@ -14,13 +14,13 @@ export default function ModelViewer({ src }: { src: string }) {
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x111715, 0.055);
+    scene.fog = new THREE.FogExp2(0x030824, 0.055);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 1000);
     camera.position.set(5.2, 4.1, 5.2);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x111715, 1);
+    renderer.setClearColor(0x030824, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
@@ -34,15 +34,15 @@ export default function ModelViewer({ src }: { src: string }) {
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.5;
 
-    scene.add(new THREE.HemisphereLight(0xdfffe8, 0x13211d, 2.1));
-    const keyLight = new THREE.DirectionalLight(0xc9f36d, 3.2);
+    scene.add(new THREE.HemisphereLight(0xe8f7ff, 0x06123a, 2.1));
+    const keyLight = new THREE.DirectionalLight(0x00dfff, 3.2);
     keyLight.position.set(4, 7, 3);
     scene.add(keyLight);
-    const fillLight = new THREE.DirectionalLight(0x50d2c5, 2.2);
+    const fillLight = new THREE.DirectionalLight(0x155fff, 2.2);
     fillLight.position.set(-5, 2, -4);
     scene.add(fillLight);
 
-    const grid = new THREE.GridHelper(12, 24, 0x4e645b, 0x293730);
+    const grid = new THREE.GridHelper(12, 24, 0x167fff, 0x0b255e);
     grid.material.opacity = 0.42;
     grid.material.transparent = true;
     scene.add(grid);
@@ -66,6 +66,8 @@ export default function ModelViewer({ src }: { src: string }) {
           object.castShadow = true;
           object.receiveShadow = true;
           const sourceMaterial = object.material as THREE.MeshStandardMaterial;
+          sourceMaterial.color.set(0x155fff);
+          sourceMaterial.emissive?.set(0x03174f);
           sourceMaterial.metalness = 0.05;
           sourceMaterial.roughness = 0.76;
           sourceMaterial.side = THREE.DoubleSide;
