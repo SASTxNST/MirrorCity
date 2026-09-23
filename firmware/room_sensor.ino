@@ -21,6 +21,15 @@
  *
  * Board: "LOLIN(WEMOS) D1 R2 & mini" or "NodeMCU 1.0 (ESP-12E)"
  * Upload speed: 115200
+ *
+ * Device secret:
+ *   POST /api/ingest now checks a deviceSecret against the one stored for
+ *   this device. Register once — e.g. `curl -X POST $API_BASE/api/sensors
+ *   -d '{"roomId":1,"hardwareId":"ESP_xxxx"}'` — copy the deviceSecret from
+ *   that response into DEVICE_SECRET below, and re-flash. Until you do,
+ *   the server accepts one ungated "grace" write from a device with no
+ *   secret set yet, so a brand-new device still works before you've set
+ *   this — but locks to whatever secret it's given from that point on.
  */
 
 #include <ESP8266WiFi.h>
@@ -41,6 +50,10 @@ const char* API_BASE      = "https://mirrorcity.YOUR_SUBDOMAIN.workers.dev";
 
 // Room ID in the database (1 if you only have one room)
 const int ROOM_ID = 1;
+
+// Secret returned once by POST /api/sensors at registration — leave empty
+// until you've registered this device (see "Device secret" note above).
+const char* DEVICE_SECRET = "";
 
 // How often to send a reading (milliseconds)
 const unsigned long SEND_INTERVAL_MS = 30000;
@@ -129,9 +142,10 @@ void loop() {
                 temperature, humidity, occupancy, co2ppm);
 
   // ── Build JSON payload ────────────────────────────────────────────────────
-  StaticJsonDocument<256> doc;
-  doc["hardwareId"] = hardwareId;
-  doc["roomId"]     = ROOM_ID;
+  StaticJsonDocument<320> doc;
+  doc["hardwareId"]   = hardwareId;
+  doc["roomId"]       = ROOM_ID;
+  doc["deviceSecret"] = DEVICE_SECRET;
   JsonObject readings = doc.createNestedObject("readings");
   readings["temperature"] = round(temperature * 10) / 10.0;
   readings["humidity"]    = round(humidity * 10) / 10.0;

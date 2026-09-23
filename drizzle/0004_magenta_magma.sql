@@ -1,0 +1,1 @@
+ALTER TABLE `sensors` ADD `device_secret` text;

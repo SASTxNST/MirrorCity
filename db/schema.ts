@@ -78,6 +78,7 @@ export const sensors = sqliteTable("sensors", {
   y: real("y").notNull().default(0.7),         // height fraction
   z: real("z").notNull().default(0.5),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
+  deviceSecret: text("device_secret"),          // set on first registration; POST /api/ingest must match it
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

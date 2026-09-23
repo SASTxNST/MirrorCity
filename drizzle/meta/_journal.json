@@ -29,6 +29,13 @@
       "when": 1790154700373,
       "tag": "0003_smart_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790157445209,
+      "tag": "0004_magenta_magma",
+      "breakpoints": true
     }
   ]
 }

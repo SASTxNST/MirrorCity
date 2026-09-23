@@ -14,7 +14,10 @@ export async function GET(request: Request) {
     const roomId = Number(url.searchParams.get("roomId"));
     if (!roomId) return Response.json({ error: "roomId required" }, { status: 400 });
     const db = getDb();
-    const rows = await db.select().from(sensors).where(eq(sensors.roomId, roomId));
+    const rows = await db
+      .select({ id: sensors.id, roomId: sensors.roomId, hardwareId: sensors.hardwareId, name: sensors.name, type: sensors.type, x: sensors.x, y: sensors.y, z: sensors.z, active: sensors.active, createdAt: sensors.createdAt })
+      .from(sensors)
+      .where(eq(sensors.roomId, roomId));
     return Response.json(rows);
   } catch (e) {
     return Response.json({ error: toError(e) }, { status: 500 });
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
 
     // Upsert — if a sensor with this hardwareId already exists for this room, return it
     const existing = await db
-      .select()
+      .select({ id: sensors.id, roomId: sensors.roomId, hardwareId: sensors.hardwareId, name: sensors.name, type: sensors.type, x: sensors.x, y: sensors.y, z: sensors.z, active: sensors.active, createdAt: sensors.createdAt })
       .from(sensors)
       .where(eq(sensors.hardwareId, payload.hardwareId))
       .limit(1);
@@ -56,6 +59,9 @@ export async function POST(request: Request) {
       return Response.json(existing[0]);
     }
 
+    // deviceSecret is only ever returned here, at registration — the
+    // device must store it and send it with every POST /api/ingest.
+    const deviceSecret = crypto.randomUUID();
     const [row] = await db
       .insert(sensors)
       .values({
@@ -66,6 +72,7 @@ export async function POST(request: Request) {
         x: payload.x ?? 0.5,
         y: payload.y ?? 0.7,
         z: payload.z ?? 0.5,
+        deviceSecret,
       })
       .returning();
     return Response.json(row, { status: 201 });
@@ -99,7 +106,11 @@ export async function PUT(request: Request) {
     if (payload.z !== undefined) updates.z = payload.z;
     if (payload.active !== undefined) updates.active = payload.active;
     const db = getDb();
-    const [row] = await db.update(sensors).set(updates).where(eq(sensors.id, payload.id)).returning();
+    const [row] = await db
+      .update(sensors)
+      .set(updates)
+      .where(eq(sensors.id, payload.id))
+      .returning({ id: sensors.id, roomId: sensors.roomId, hardwareId: sensors.hardwareId, name: sensors.name, type: sensors.type, x: sensors.x, y: sensors.y, z: sensors.z, active: sensors.active, createdAt: sensors.createdAt });
     return Response.json(row);
   } catch (e) {
     return Response.json({ error: toError(e) }, { status: 500 });
