@@ -350,7 +350,9 @@ export default function Home() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ layers: JSON.stringify(next) }),
-        }).catch(() => {});
+        })
+          .then((res) => { if (!res.ok) setToast("Couldn't save layer settings — this session isn't yours to edit"); })
+          .catch(() => {});
       }
       return next;
     });
@@ -419,8 +421,13 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, kind: lineKind, points: JSON.stringify(draftPoints) }),
         })
-          .then((res) => res.json())
-          .then((row: { id?: number }) => {
+          .then(async (res) => {
+            if (!res.ok) {
+              setDrawnLines((current) => current.filter((line) => line.id !== tempId));
+              setToast("Couldn't save that line — this session isn't yours to edit");
+              return;
+            }
+            const row = await res.json() as { id?: number };
             if (row.id) {
               setDrawnLines((current) =>
                 current.map((line) => line.id === tempId ? { ...line, id: row.id! } : line)
@@ -439,8 +446,13 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, points: JSON.stringify(draftPoints) }),
         })
-          .then((res) => res.json())
-          .then((row: { id?: number }) => {
+          .then(async (res) => {
+            if (!res.ok) {
+              setDrawnAreas((current) => current.filter((area) => area.id !== tempId));
+              setToast("Couldn't save that zone — this session isn't yours to edit");
+              return;
+            }
+            const row = await res.json() as { id?: number };
             if (row.id) {
               setDrawnAreas((current) =>
                 current.map((area) => area.id === tempId ? { ...area, id: row.id! } : area)
@@ -466,21 +478,48 @@ export default function Home() {
       const last = plannedBuildings[plannedBuildings.length - 1];
       setPlannedBuildings((current) => current.slice(0, -1));
       setToast("Last building removed");
-      if (sessionId) fetch(`/api/buildings?id=${last.id}`, { method: "DELETE" }).catch(() => {});
+      if (sessionId) {
+        fetch(`/api/buildings?id=${last.id}`, { method: "DELETE" })
+          .then((res) => {
+            if (!res.ok) {
+              setPlannedBuildings((current) => [...current, last]);
+              setToast("Couldn't remove that building — this session isn't yours to edit");
+            }
+          })
+          .catch(() => {});
+      }
       return;
     }
     if (addedAssets.length) {
       const last = addedAssets[addedAssets.length - 1];
       setAddedAssets((current) => current.slice(0, -1));
       setToast("Last asset removed");
-      if (sessionId) fetch(`/api/assets?id=${last.id}`, { method: "DELETE" }).catch(() => {});
+      if (sessionId) {
+        fetch(`/api/assets?id=${last.id}`, { method: "DELETE" })
+          .then((res) => {
+            if (!res.ok) {
+              setAddedAssets((current) => [...current, last]);
+              setToast("Couldn't remove that asset — this session isn't yours to edit");
+            }
+          })
+          .catch(() => {});
+      }
       return;
     }
     if (drawnLines.length) {
       const last = drawnLines[drawnLines.length - 1];
       setDrawnLines((current) => current.slice(0, -1));
       setToast("Last line removed");
-      if (sessionId) fetch(`/api/lines?id=${last.id}`, { method: "DELETE" }).catch(() => {});
+      if (sessionId) {
+        fetch(`/api/lines?id=${last.id}`, { method: "DELETE" })
+          .then((res) => {
+            if (!res.ok) {
+              setDrawnLines((current) => [...current, last]);
+              setToast("Couldn't remove that line — this session isn't yours to edit");
+            }
+          })
+          .catch(() => {});
+      }
     }
   }
 
@@ -542,8 +581,13 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, x: point.x, y: point.y, floors: buildingFloors }),
         })
-          .then((res) => res.json())
-          .then((row: { id?: number }) => {
+          .then(async (res) => {
+            if (!res.ok) {
+              setPlannedBuildings((current) => current.filter((b) => b.id !== tempId));
+              setToast("Couldn't place that building — this session isn't yours to edit");
+              return;
+            }
+            const row = await res.json() as { id?: number };
             if (row.id) {
               setPlannedBuildings((current) =>
                 current.map((b) => b.id === tempId ? { ...b, id: row.id! } : b)
@@ -565,8 +609,14 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, assetId: selectedAsset.id, assetName: selectedAsset.name, x: point.x, y: point.y }),
       })
-        .then((res) => res.json())
-        .then((row: { id?: number }) => {
+        .then(async (res) => {
+          if (!res.ok) {
+            setAddedAssets((current) => current.filter((a) => a.id !== tempId));
+            setSelectedPlacedAssetId((cur) => cur === tempId ? null : cur);
+            setToast("Couldn't place that asset — this session isn't yours to edit");
+            return;
+          }
+          const row = await res.json() as { id?: number };
           if (row.id) {
             setAddedAssets((current) =>
               current.map((a) => a.id === tempId ? { ...a, id: row.id! } : a)
@@ -585,7 +635,9 @@ export default function Home() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, ...changes }),
-      }).catch(() => {});
+      })
+        .then((res) => { if (!res.ok) setToast("Couldn't save that change — this session isn't yours to edit"); })
+        .catch(() => {});
     }
   }
 
@@ -597,10 +649,20 @@ export default function Home() {
   }
 
   function deletePlacedAsset(id: number) {
+    const removed = addedAssets.find((asset) => asset.id === id) ?? null;
     setAddedAssets((current) => current.filter((asset) => asset.id !== id));
     setSelectedPlacedAssetId(null);
     setToast("Asset removed from the district");
-    if (sessionId) fetch(`/api/assets?id=${id}`, { method: "DELETE" }).catch(() => {});
+    if (sessionId) {
+      fetch(`/api/assets?id=${id}`, { method: "DELETE" })
+        .then((res) => {
+          if (!res.ok && removed) {
+            setAddedAssets((current) => [...current, removed]);
+            setToast("Couldn't remove that asset — this session isn't yours to edit");
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   if (loading) {

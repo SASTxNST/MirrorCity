@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { drawnAreas } from "../../../db/schema";
 import { blankStringField } from "../_validate";
+import { requireOwnedSession } from "../_session-auth";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -47,6 +48,9 @@ export async function POST(request: Request) {
     const stringError = blankStringField({ points: payload.points });
     if (stringError) return stringError;
 
+    const authError = await requireOwnedSession(request, payload.sessionId);
+    if (authError) return authError;
+
     const db = getDb();
     const [row] = await db
       .insert(drawnAreas)
@@ -70,6 +74,11 @@ export async function DELETE(request: Request) {
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
     const db = getDb();
+    const [existing] = await db.select({ sessionId: drawnAreas.sessionId }).from(drawnAreas).where(eq(drawnAreas.id, id)).limit(1);
+    if (!existing) return Response.json({ error: "Area not found" }, { status: 404 });
+    const authError = await requireOwnedSession(request, existing.sessionId);
+    if (authError) return authError;
+
     await db.delete(drawnAreas).where(eq(drawnAreas.id, id));
 
     return Response.json({ deleted: id });

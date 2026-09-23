@@ -76,7 +76,7 @@ before(async () => {
 
   const db = await mf.getD1Database("DB");
   const migrationsDir = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_fixed_tyger_tiger.sql", "0001_new_gateway.sql"]) {
+  for (const file of ["0000_fixed_tyger_tiger.sql", "0001_new_gateway.sql", "0002_glamorous_colonel_america.sql", "0003_smart_smasher.sql"]) {
     const sql = readFileSync(new URL(file, migrationsDir), "utf8");
     for (const statement of sql.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) {
       await db.prepare(statement).run();

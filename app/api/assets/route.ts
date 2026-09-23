@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { placedAssets } from "../../../db/schema";
 import { blankStringField, invalidNumberField } from "../_validate";
+import { requireOwnedSession } from "../_session-auth";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -54,6 +55,9 @@ export async function POST(request: Request) {
     const stringError = blankStringField({ assetId: payload.assetId, assetName: payload.assetName });
     if (stringError) return stringError;
 
+    const authError = await requireOwnedSession(request, payload.sessionId);
+    if (authError) return authError;
+
     const db = getDb();
     const [row] = await db
       .insert(placedAssets)
@@ -90,13 +94,18 @@ export async function PUT(request: Request) {
     const numberError = invalidNumberField({ x: payload.x, y: payload.y, rotation: payload.rotation, scale: payload.scale });
     if (numberError) return numberError;
 
+    const db = getDb();
+    const [existing] = await db.select({ sessionId: placedAssets.sessionId }).from(placedAssets).where(eq(placedAssets.id, payload.id)).limit(1);
+    if (!existing) return Response.json({ error: "Asset not found" }, { status: 404 });
+    const authError = await requireOwnedSession(request, existing.sessionId);
+    if (authError) return authError;
+
     const updates: Partial<{ x: number; y: number; rotation: number; scale: number }> = {};
     if (payload.x !== undefined) updates.x = payload.x;
     if (payload.y !== undefined) updates.y = payload.y;
     if (payload.rotation !== undefined) updates.rotation = payload.rotation;
     if (payload.scale !== undefined) updates.scale = payload.scale;
 
-    const db = getDb();
     const [row] = await db
       .update(placedAssets)
       .set(updates)
@@ -117,6 +126,11 @@ export async function DELETE(request: Request) {
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
     const db = getDb();
+    const [existing] = await db.select({ sessionId: placedAssets.sessionId }).from(placedAssets).where(eq(placedAssets.id, id)).limit(1);
+    if (!existing) return Response.json({ error: "Asset not found" }, { status: 404 });
+    const authError = await requireOwnedSession(request, existing.sessionId);
+    if (authError) return authError;
+
     await db.delete(placedAssets).where(eq(placedAssets.id, id));
 
     return Response.json({ deleted: id });
