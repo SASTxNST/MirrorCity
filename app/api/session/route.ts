@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sessions } from "../../../db/schema";
 import { blankStringField, invalidNumberField } from "../_validate";
+import { ensureOwnerToken, getOwnerToken, requireOwnedSession } from "../_session-auth";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -13,27 +14,51 @@ function toError(error: unknown): string {
   return message;
 }
 
-// GET /api/session — return the latest session (or create a default one)
-export async function GET() {
+// GET /api/session — return this browser's own session, isolating it from
+// other visitors. A request with no owner cookie yet falls back to the
+// pre-Phase-3 behavior (single shared/latest session, created if none
+// exists) so local dev and non-browser callers keep working unchanged.
+export async function GET(request: Request) {
   try {
     const db = getDb();
-    const rows = await db
+    const { token, setCookie } = ensureOwnerToken(request);
+
+    const owned = await db
       .select()
       .from(sessions)
+      .where(eq(sessions.ownerToken, token))
       .orderBy(desc(sessions.updatedAt), desc(sessions.id))
       .limit(1);
 
-    if (rows.length > 0) {
-      return Response.json({ session: rows[0] });
+    let session = owned[0];
+
+    if (!session && setCookie) {
+      // Freshly issued token (no cookie was present) — fall back to the
+      // single shared/latest session for backward compatibility, claiming
+      // it for this token if nobody already has.
+      const [latest] = await db
+        .select()
+        .from(sessions)
+        .orderBy(desc(sessions.updatedAt), desc(sessions.id))
+        .limit(1);
+
+      if (latest && !latest.ownerToken) {
+        [session] = await db.update(sessions).set({ ownerToken: token }).where(eq(sessions.id, latest.id)).returning();
+      } else {
+        session = latest;
+      }
     }
 
-    // No session exists yet — create a default one
-    const [created] = await db
-      .insert(sessions)
-      .values({ districtName: "Varuna River Ward", population: 2000, activeScenario: "sewer", layers: "{}", label: "" })
-      .returning();
+    if (!session) {
+      [session] = await db
+        .insert(sessions)
+        .values({ districtName: "Varuna River Ward", population: 2000, activeScenario: "sewer", layers: "{}", label: "", ownerToken: token })
+        .returning();
+    }
 
-    return Response.json({ session: created });
+    const response = Response.json({ session });
+    if (setCookie) response.headers.append("Set-Cookie", setCookie);
+    return response;
   } catch (error) {
     return Response.json({ error: toError(error) }, { status: 500 });
   }
@@ -59,17 +84,19 @@ export async function PUT(request: Request) {
     if (stringError) return stringError;
 
     const db = getDb();
-    const rows = await db
-      .select()
-      .from(sessions)
-      .orderBy(desc(sessions.updatedAt), desc(sessions.id))
-      .limit(1);
+    const token = getOwnerToken(request);
+    const rows = token
+      ? await db.select().from(sessions).where(eq(sessions.ownerToken, token)).orderBy(desc(sessions.updatedAt), desc(sessions.id)).limit(1)
+      : await db.select().from(sessions).orderBy(desc(sessions.updatedAt), desc(sessions.id)).limit(1);
 
     if (rows.length === 0) {
       return Response.json({ error: "No active session" }, { status: 404 });
     }
 
     const current = rows[0];
+    const authError = await requireOwnedSession(request, current.id);
+    if (authError) return authError;
+
     const updates: Partial<typeof current> = { updatedAt: new Date().toISOString() };
 
     if (payload.districtName !== undefined) updates.districtName = payload.districtName;

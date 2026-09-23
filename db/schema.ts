@@ -9,6 +9,7 @@ export const sessions = sqliteTable("sessions", {
   activeScenario: text("active_scenario").notNull().default("sewer"),
   layers: text("layers").notNull().default("{}"),
   label: text("label").notNull().default(""),
+  ownerToken: text("owner_token"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

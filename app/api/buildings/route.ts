@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { plannedBuildings } from "../../../db/schema";
 import { invalidNumberField } from "../_validate";
+import { requireOwnedSession } from "../_session-auth";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -49,6 +50,9 @@ export async function POST(request: Request) {
     const numberError = invalidNumberField({ x: payload.x, y: payload.y, floors: payload.floors });
     if (numberError) return numberError;
 
+    const authError = await requireOwnedSession(request, payload.sessionId);
+    if (authError) return authError;
+
     const db = getDb();
     const [row] = await db
       .insert(plannedBuildings)
@@ -74,6 +78,11 @@ export async function DELETE(request: Request) {
     if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
     const db = getDb();
+    const [existing] = await db.select({ sessionId: plannedBuildings.sessionId }).from(plannedBuildings).where(eq(plannedBuildings.id, id)).limit(1);
+    if (!existing) return Response.json({ error: "Building not found" }, { status: 404 });
+    const authError = await requireOwnedSession(request, existing.sessionId);
+    if (authError) return authError;
+
     await db.delete(plannedBuildings).where(eq(plannedBuildings.id, id));
 
     return Response.json({ deleted: id });
