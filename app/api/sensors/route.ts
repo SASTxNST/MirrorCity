@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sensors } from "../../../db/schema";
+import { blankStringField, invalidNumberField } from "../_validate";
 
 function toError(e: unknown) {
   return e instanceof Error ? e.message : "Unexpected error";
@@ -36,6 +37,12 @@ export async function POST(request: Request) {
     if (!payload.roomId || !payload.hardwareId) {
       return Response.json({ error: "roomId and hardwareId required" }, { status: 400 });
     }
+
+    const numberError = invalidNumberField({ x: payload.x, y: payload.y, z: payload.z });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ hardwareId: payload.hardwareId, name: payload.name, type: payload.type });
+    if (stringError) return stringError;
+
     const db = getDb();
 
     // Upsert — if a sensor with this hardwareId already exists for this room, return it
@@ -79,6 +86,12 @@ export async function PUT(request: Request) {
       active?: boolean;
     };
     if (!payload.id) return Response.json({ error: "id required" }, { status: 400 });
+
+    const numberError = invalidNumberField({ x: payload.x, y: payload.y, z: payload.z });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ name: payload.name });
+    if (stringError) return stringError;
+
     const updates: Record<string, unknown> = {};
     if (payload.name !== undefined) updates.name = payload.name;
     if (payload.x !== undefined) updates.x = payload.x;

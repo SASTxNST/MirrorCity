@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { placedAssets } from "../../../db/schema";
+import { blankStringField, invalidNumberField } from "../_validate";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "sessionId and assetId required" }, { status: 400 });
     }
 
+    const numberError = invalidNumberField({ x: payload.x, y: payload.y, rotation: payload.rotation, scale: payload.scale });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ assetId: payload.assetId, assetName: payload.assetName });
+    if (stringError) return stringError;
+
     const db = getDb();
     const [row] = await db
       .insert(placedAssets)
@@ -80,6 +86,9 @@ export async function PUT(request: Request) {
     };
 
     if (!payload.id) return Response.json({ error: "id required" }, { status: 400 });
+
+    const numberError = invalidNumberField({ x: payload.x, y: payload.y, rotation: payload.rotation, scale: payload.scale });
+    if (numberError) return numberError;
 
     const updates: Partial<{ x: number; y: number; rotation: number; scale: number }> = {};
     if (payload.x !== undefined) updates.x = payload.x;

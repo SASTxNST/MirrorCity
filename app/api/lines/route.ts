@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { drawnLines } from "../../../db/schema";
+import { blankStringField } from "../_validate";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
     if (!payload.sessionId || !payload.kind || !payload.points) {
       return Response.json({ error: "sessionId, kind, and points required" }, { status: 400 });
     }
+
+    const stringError = blankStringField({ kind: payload.kind, points: payload.points });
+    if (stringError) return stringError;
 
     const db = getDb();
     const [row] = await db

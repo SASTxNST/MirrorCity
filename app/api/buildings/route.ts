@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { plannedBuildings } from "../../../db/schema";
+import { invalidNumberField } from "../_validate";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -44,6 +45,9 @@ export async function POST(request: Request) {
     if (!payload.sessionId) {
       return Response.json({ error: "sessionId required" }, { status: 400 });
     }
+
+    const numberError = invalidNumberField({ x: payload.x, y: payload.y, floors: payload.floors });
+    if (numberError) return numberError;
 
     const db = getDb();
     const [row] = await db

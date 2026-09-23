@@ -1,6 +1,7 @@
 import { getDb } from "../../../db";
 import { rooms } from "../../../db/schema";
 import { eq } from "drizzle-orm";
+import { blankStringField, invalidNumberField } from "../_validate";
 
 function toError(e: unknown) {
   return e instanceof Error ? e.message : "Unexpected error";
@@ -27,6 +28,12 @@ export async function POST(request: Request) {
       depthM?: number;
       heightM?: number;
     };
+
+    const numberError = invalidNumberField({ widthM: payload.widthM, depthM: payload.depthM, heightM: payload.heightM });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ name: payload.name, glbPath: payload.glbPath });
+    if (stringError) return stringError;
+
     const db = getDb();
     const [row] = await db
       .insert(rooms)
@@ -56,6 +63,12 @@ export async function PUT(request: Request) {
       heightM?: number;
     };
     if (!payload.id) return Response.json({ error: "id required" }, { status: 400 });
+
+    const numberError = invalidNumberField({ widthM: payload.widthM, depthM: payload.depthM, heightM: payload.heightM });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ name: payload.name, glbPath: payload.glbPath });
+    if (stringError) return stringError;
+
     const updates: Record<string, unknown> = {};
     if (payload.name !== undefined) updates.name = payload.name;
     if (payload.glbPath !== undefined) updates.glbPath = payload.glbPath;

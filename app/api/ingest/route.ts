@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sensors, sensorReadings } from "../../../db/schema";
+import { blankStringField, invalidNumberField } from "../_validate";
 
 /**
  * POST /api/ingest
@@ -37,6 +38,11 @@ export async function POST(request: Request) {
     if (!payload.hardwareId || !payload.roomId || !payload.readings) {
       return Response.json({ error: "hardwareId, roomId, and readings required" }, { status: 400 });
     }
+
+    const numberError = invalidNumberField({ roomId: payload.roomId, ...payload.readings });
+    if (numberError) return numberError;
+    const stringError = blankStringField({ hardwareId: payload.hardwareId });
+    if (stringError) return stringError;
 
     const db = getDb();
 
