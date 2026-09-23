@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sessions } from "../../../db/schema";
+import { blankStringField, invalidNumberField } from "../_validate";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -47,6 +48,15 @@ export async function PUT(request: Request) {
       activeScenario?: string;
       layers?: string;
     };
+
+    const numberError = invalidNumberField({ population: payload.population });
+    if (numberError) return numberError;
+    const stringError = blankStringField({
+      districtName: payload.districtName,
+      activeScenario: payload.activeScenario,
+      layers: payload.layers,
+    });
+    if (stringError) return stringError;
 
     const db = getDb();
     const rows = await db

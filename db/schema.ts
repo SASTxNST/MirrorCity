@@ -16,7 +16,7 @@ export const sessions = sqliteTable("sessions", {
 // Assets placed on the map (one row per placed asset)
 export const placedAssets = sqliteTable("placed_assets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: integer("session_id").notNull(),
+  sessionId: integer("session_id").notNull().references(() => sessions.id),
   assetId: text("asset_id").notNull(),
   assetName: text("asset_name").notNull(),
   x: real("x").notNull(),
@@ -29,7 +29,7 @@ export const placedAssets = sqliteTable("placed_assets", {
 // Utility lines drawn on the map
 export const drawnLines = sqliteTable("drawn_lines", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: integer("session_id").notNull(),
+  sessionId: integer("session_id").notNull().references(() => sessions.id),
   kind: text("kind").notNull(),
   points: text("points").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -38,7 +38,7 @@ export const drawnLines = sqliteTable("drawn_lines", {
 // Planning zones (polygons)
 export const drawnAreas = sqliteTable("drawn_areas", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: integer("session_id").notNull(),
+  sessionId: integer("session_id").notNull().references(() => sessions.id),
   points: text("points").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
@@ -46,7 +46,7 @@ export const drawnAreas = sqliteTable("drawn_areas", {
 // Proposed buildings placed on the plan
 export const plannedBuildings = sqliteTable("planned_buildings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: integer("session_id").notNull(),
+  sessionId: integer("session_id").notNull().references(() => sessions.id),
   x: real("x").notNull(),
   y: real("y").notNull(),
   floors: integer("floors").notNull().default(4),
@@ -69,7 +69,7 @@ export const rooms = sqliteTable("rooms", {
 // A physical sensor node (ESP8266/ESP32) inside a room
 export const sensors = sqliteTable("sensors", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  roomId: integer("room_id").notNull(),
+  roomId: integer("room_id").notNull().references(() => rooms.id),
   hardwareId: text("hardware_id").notNull(),   // MAC-derived id from the device e.g. "ESP_A1B2"
   name: text("name").notNull().default("Sensor"),
   type: text("type").notNull().default("env"), // "env" | "occupancy" | "co2" | "multi"
@@ -83,7 +83,7 @@ export const sensors = sqliteTable("sensors", {
 // One row per metric reading from a sensor
 export const sensorReadings = sqliteTable("sensor_readings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sensorId: integer("sensor_id").notNull(),
+  sensorId: integer("sensor_id").notNull().references(() => sensors.id),
   metric: text("metric").notNull(),            // "temperature" | "humidity" | "occupancy" | "co2"
   value: real("value").notNull(),
   unit: text("unit").notNull(),                // "°C" | "%" | "bool" | "ppm"
@@ -93,7 +93,7 @@ export const sensorReadings = sqliteTable("sensor_readings", {
 // Uploaded data files (metadata only)
 export const uploads = sqliteTable("uploads", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: integer("session_id").notNull(),
+  sessionId: integer("session_id").notNull().references(() => sessions.id),
   filename: text("filename").notNull(),
   fileType: text("file_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),

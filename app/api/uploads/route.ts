@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { uploads } from "../../../db/schema";
+import { blankStringField } from "../_validate";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
     if (!allowedTypes.includes(ext)) {
       return Response.json({ error: `Unsupported file type: .${ext}` }, { status: 400 });
     }
+
+    const stringError = blankStringField({ filename: file.name });
+    if (stringError) return stringError;
 
     const db = getDb();
     const [row] = await db
