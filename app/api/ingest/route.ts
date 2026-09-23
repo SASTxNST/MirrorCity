@@ -3,6 +3,12 @@ import { getDb } from "../../../db";
 import { sensors, sensorReadings } from "../../../db/schema";
 import { blankStringField, invalidNumberField } from "../_validate";
 
+// Simple in-memory sliding-window rate limit — good enough for a single
+// Worker isolate, not durable across isolates/restarts. Full Durable
+// Object-based rate limiting is future work.
+const RATE_LIMIT_MS = 10_000;
+const lastSeenByDevice = new Map<string, number>();
+
 /**
  * POST /api/ingest
  *
@@ -12,6 +18,7 @@ import { blankStringField, invalidNumberField } from "../_validate";
  * {
  *   hardwareId: "ESP_A1B2",          // unique per device
  *   roomId: 1,                        // must match a row in rooms table
+ *   deviceSecret: "…",                // issued once by POST /api/sensors
  *   readings: {
  *     temperature?: 28.4,             // °C
  *     humidity?: 62.1,                // %
@@ -27,6 +34,7 @@ export async function POST(request: Request) {
     const payload = (await request.json()) as {
       hardwareId: string;
       roomId: number;
+      deviceSecret?: string;
       readings: Partial<{
         temperature: number;
         humidity: number;
@@ -43,6 +51,13 @@ export async function POST(request: Request) {
     if (numberError) return numberError;
     const stringError = blankStringField({ hardwareId: payload.hardwareId });
     if (stringError) return stringError;
+
+    const lastSeen = lastSeenByDevice.get(payload.hardwareId);
+    const nowMs = Date.now();
+    if (lastSeen !== undefined && nowMs - lastSeen < RATE_LIMIT_MS) {
+      return Response.json({ error: "Rate limited — try again shortly" }, { status: 429 });
+    }
+    lastSeenByDevice.set(payload.hardwareId, nowMs);
 
     const db = getDb();
 
@@ -61,8 +76,22 @@ export async function POST(request: Request) {
           hardwareId: payload.hardwareId,
           name: `Auto: ${payload.hardwareId}`,
           type: "env",
+          deviceSecret: payload.deviceSecret || null,
         })
         .returning();
+    } else if (!sensorRow.deviceSecret) {
+      // Grace write — this device has never had a secret set (an
+      // already-deployed device from before this change). Adopt whatever
+      // it sends now, if anything, as its secret going forward.
+      if (payload.deviceSecret) {
+        [sensorRow] = await db
+          .update(sensors)
+          .set({ deviceSecret: payload.deviceSecret })
+          .where(eq(sensors.id, sensorRow.id))
+          .returning();
+      }
+    } else if (payload.deviceSecret !== sensorRow.deviceSecret) {
+      return Response.json({ error: "Invalid or missing deviceSecret" }, { status: 401 });
     }
 
     // Determine the unit for each metric
@@ -102,6 +131,6 @@ export async function POST(request: Request) {
 export async function GET() {
   return Response.json({
     status: "ok",
-    usage: "POST { hardwareId, roomId, readings: { temperature?, humidity?, occupancy?, co2? } }",
+    usage: "POST { hardwareId, roomId, deviceSecret, readings: { temperature?, humidity?, occupancy?, co2? } }",
   });
 }
