@@ -64,24 +64,10 @@ export async function POST(request: Request) {
         filename: file.name,
         fileType: ext,
         sizeBytes: file.size,
-        status: "processing",
-        message: "Registered. Processing will begin shortly.",
+        status: "registered",
+        message: "File metadata recorded. Processing pipeline not yet implemented (see roadmap Phase 1).",
       })
       .returning();
-
-    // Simulate async processing: mark as ready after a short delay
-    // In Phase 2 this becomes a real Cloudflare Queue or Durable Object task
-    setTimeout(async () => {
-      try {
-        const db2 = getDb();
-        await db2
-          .update(uploads)
-          .set({ status: "ready", message: `${file.name} registered successfully.` })
-          .where(eq(uploads.id, row.id));
-      } catch {
-        // Best-effort background update — ignore failures
-      }
-    }, 2000);
 
     return Response.json(row, { status: 201 });
   } catch (error) {
