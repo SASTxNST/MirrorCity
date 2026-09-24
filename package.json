@@ -12,6 +12,7 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "node scripts/db-migrate-local.mjs",
     "flood:test": "python -m scripts.flood.validation",
     "flood:run": "python -m scripts.flood.run_simulation"
   },

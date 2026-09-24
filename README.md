@@ -291,6 +291,7 @@ flowchart LR
 git clone https://github.com/SASTxNST/MirrorCity.git
 cd MirrorCity
 npm install
+npm run db:migrate:local   # create/update the local D1 database (re-run after pulling new migrations)
 npm run dev
 ```
 
