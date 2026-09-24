@@ -5,17 +5,19 @@ import Image from "next/image";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
+import { evacuationMetrics, floodMetrics, sewerLoad } from "../lib/city-metrics";
+import { Icon, type IconName } from "./components/Icon";
+import AssetPanel, { type AssetDefinition } from "./components/AssetPanel";
+import LayerControls, { type LayerKey } from "./components/LayerControls";
+import ScenarioPanel, { type ScenarioKey } from "./components/ScenarioPanel";
 
-type ScenarioKey = "sewer" | "flood" | "evacuation";
 type ViewKey = "twin" | "scenarios" | "infrastructure" | "assets" | "data" | "operations" | "settings" | "help";
-type LayerKey = "buildings" | "sewer" | "power" | "mobility" | "sensors" | "construction";
 type ToolKey = "select" | "orbit" | "measure" | "line" | "area" | "building" | "asset";
 type LineKind = "sewer" | "power" | "water" | "road";
 type MapPoint = { x: number; y: number };
 type DrawnLine = { id: number; kind: LineKind; points: MapPoint[] };
 type DrawnArea = { id: number; points: MapPoint[] };
 type PlannedBuilding = { id: number; x: number; y: number; floors: number };
-type AssetDefinition = { id: string; name: string; category: string; code: string; description: string; size: string; tone: string; file?: string; format?: "OBJ" | "GLB"; preview?: string; stats?: Array<{ label: string; value: string }> };
 type PlacedAsset = { id: number; x: number; y: number; rotation: number; scale: number; asset: AssetDefinition };
 type DataTab = "catalogue" | "quality" | "standards";
 type DatasetRecord = {
@@ -111,31 +113,6 @@ function buildObjAsset(asset: AssetDefinition) {
   return `# MirrorCity civic asset\n# ${asset.name}\no ${asset.id}\nv ${-width / 2} 0 ${-depth / 2}\nv ${width / 2} 0 ${-depth / 2}\nv ${width / 2} 0 ${depth / 2}\nv ${-width / 2} 0 ${depth / 2}\nv ${-width / 2} ${height} ${-depth / 2}\nv ${width / 2} ${height} ${-depth / 2}\nv ${width / 2} ${height} ${depth / 2}\nv ${-width / 2} ${height} ${depth / 2}\nf 1 2 3 4\nf 5 8 7 6\nf 1 5 6 2\nf 2 6 7 3\nf 3 7 8 4\nf 5 1 4 8\n`;
 }
 
-type IconName = "twin" | "scenario" | "layers" | "assets" | "data" | "activity" | "settings" | "help" | "search" | "bell" | "plus" | "compare" | "import" | "play" | "orbit" | "measure" | "building";
-
-function Icon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    twin: <><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M8 15V9l4-2 4 2v6l-4 2-4-2Z"/><path d="m8 9 4 2 4-2M12 11v6"/></>,
-    scenario: <><circle cx="12" cy="12" r="8.5"/><path d="M10 8.5 15.5 12 10 15.5v-7Z"/></>,
-    layers: <><path d="m12 3.5 8.5 4.3L12 12 3.5 7.8 12 3.5Z"/><path d="m4.5 12 7.5 3.8 7.5-3.8M4.5 16.2 12 20l7.5-3.8"/></>,
-    assets: <><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5v-7Z"/><path d="m4 8.5 8 4.5 8-4.5M12 13v7"/></>,
-    data: <><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></>,
-    activity: <><path d="M4 19V9M9.3 19V5M14.7 19v-7M20 19V3"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
-    help: <><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.5 2.5 0 1 1 3.2 2.4c-.7.3-.9.8-.9 1.6M12 17h.01"/></>,
-    search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></>,
-    bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7M10 20h4"/></>,
-    plus: <path d="M12 5v14M5 12h14"/>,
-    compare: <><path d="M8 4H4v4M16 20h4v-4M4 8c1.7-3 4.3-4.5 8-4.5 3 0 5.3 1 7 3M20 16c-1.7 3-4.3 4.5-8 4.5-3 0-5.3-1-7-3"/></>,
-    import: <><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 14v6h14v-6"/></>,
-    play: <path d="m9 7 8 5-8 5V7Z"/>,
-    orbit: <><circle cx="12" cy="12" r="3"/><path d="M4 12a8 3.5 0 0 0 16 0 8 3.5 0 0 0-16 0Z"/></>,
-    measure: <><path d="M4 17 17 4l3 3L7 20l-3-3Z"/><path d="m8 13 3 3M11 10l3 3M14 7l3 3"/></>,
-    building: <><path d="M5 21V5l9-2v18M14 9h5v12M8 8h2M8 12h2M8 16h2M17 13v2M17 18v3M3 21h18"/></>,
-  };
-  return <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
-}
-
 // ─── DB row mappers ───────────────────────────────────────────────────────────
 
 function mapDbAsset(row: { id: number; assetId: string; x: number; y: number; rotation: number; scale: number }): PlacedAsset {
@@ -149,42 +126,6 @@ function mapDbLine(row: { id: number; kind: string; points: string }): DrawnLine
 
 function mapDbArea(row: { id: number; points: string }): DrawnArea {
   return { id: row.id, points: JSON.parse(row.points) };
-}
-
-// ─── Simulation functions ─────────────────────────────────────────────────────
-
-function sewerLoad(population: number) {
-  const dailyLitres = population * 135;          // Explicit prototype assumption; not a calibrated engineering input.
-  const peakFactor = population < 2000 ? 3.2 : population < 2500 ? 3.0 : 2.8;
-  const peakLps = (dailyLitres * peakFactor) / 86400;
-  const capacity = 60;                           // system capacity: 60 L/s
-  const load = Math.min(100, Math.round((peakLps / capacity) * 100));
-  const riskNodes = load >= 90 ? 3 : load >= 80 ? 1 : 0;
-  const status = load >= 90 ? "Capacity risk" : load >= 80 ? "Watch closely" : "Within capacity";
-  return { load, peakFlow: Math.round(peakLps * 10) / 10, riskNodes, status };
-}
-
-function floodMetrics(population: number) {
-  const depth = (1.4 + (population - 1500) * 0.0006).toFixed(1);
-  const exposed = Math.round(10 + (population - 1500) * 0.006);
-  const drainTime = Math.max(28, Math.round(55 - (population - 1500) * 0.015));
-  const depthDelta = ((population - 1500) * 0.0006).toFixed(1);
-  return [
-    { value: `${depth} m`, label: "Peak depth", trend: `+${depthDelta} m` },
-    { value: String(exposed), label: "Assets exposed", trend: `${Math.round(exposed * 0.2)} critical` },
-    { value: `${drainTime} min`, label: "Drain-down", trend: drainTime < 47 ? `−${47 - drainTime}%` : `+${drainTime - 47}%` },
-  ];
-}
-
-function evacuationMetrics(population: number) {
-  const clearance = Math.round(24 + (population - 1500) * 0.009);
-  const routed = Math.round(population * 0.97);
-  const bottlenecks = population >= 2500 ? 4 : population >= 2000 ? 2 : 1;
-  return [
-    { value: `${clearance} min`, label: "Clearance time", trend: clearance <= 31 ? `−${31 - clearance} min` : `+${clearance - 31} min` },
-    { value: routed.toLocaleString(), label: "People routed", trend: "97%" },
-    { value: String(bottlenecks), label: "Bottlenecks", trend: bottlenecks > 2 ? "Action needed" : "Review" },
-  ];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -776,12 +717,7 @@ export default function Home() {
               </section>
 
               <div className="reference-bottom-grid">
-                <section className="reference-card layer-card">
-                  <header><div><span>VISIBLE SYSTEMS</span><h3>District layers</h3></div><button onClick={() => setActiveView("infrastructure")}>Manage</button></header>
-                  <div>{([
-                    ["buildings", "Built form", "624 structures", "#7aa2ff"], ["sewer", "Sewer", "18.2 km", "#4f6fff"], ["power", "Power", "46 assets", "#00dfff"], ["mobility", "Mobility", "Live traffic", "#168cff"], ["sensors", "Sensors", "128 online", "#7cecff"], ["construction", "Capital works", "7 sites", "#ffffff"],
-                  ] as Array<[LayerKey, string, string, string]>).map(([key, label, meta, color]) => <button key={key} className={layers[key] ? "active" : ""} onClick={() => toggleLayer(key)}><i style={{ background: color }} /><span><strong>{label}</strong><small>{meta}</small></span><em /></button>)}</div>
-                </section>
+                <LayerControls layers={layers} onToggle={toggleLayer} onManage={() => setActiveView("infrastructure")} />
 
                 <section className="reference-card source-card">
                   <header><div><span>SOURCE LIBRARY</span><h3>IITH reconstructions</h3></div><button onClick={() => { setAssetCategory("IITH terrain"); setActiveView("assets"); }}>View all</button></header>
@@ -909,14 +845,7 @@ export default function Home() {
             </section>
 
             <aside className="reference-aside">
-              <section className="reference-side-card simulation-card">
-                <header><div><span>{scenario.kicker}</span><h2>{scenario.label}</h2></div><button aria-label="Open scenario workspace" onClick={() => setActiveView("scenarios")}>•••</button></header>
-                <p>{activeScenario === "sewer" ? "Test how occupancy changes pressure across the district network." : activeScenario === "flood" ? "See depth and exposure under severe monsoon rainfall." : "Model route load, clearance and emergency access."}</p>
-                <label className="reference-population"><span><small>POPULATION</small><strong>{population.toLocaleString()}</strong></span><input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => { setPopulation(Number(event.target.value)); setComplete(false); }} /><i><small>1,500</small><small>2,000</small><small>2,500</small></i></label>
-                <div className="reference-metrics">{metricSet.map((metric) => <span key={metric.label}><small>{metric.label}</small><strong>{metric.value}</strong><em>{metric.trend}</em></span>)}</div>
-                <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>{activeScenario === "sewer" ? "94%" : activeScenario === "flood" ? "89%" : "91%"}</strong></span><i><b style={{ width: activeScenario === "flood" ? "89%" : activeScenario === "evacuation" ? "91%" : "94%" }} /></i><p><em /> Concept model · not calibrated</p></div>
-                <button className={`reference-side-run ${running ? "running" : ""}`} disabled={running} onClick={runSimulation}>{running ? "Computing network…" : complete ? "✓ Simulation complete" : "Run simulation"}<Icon name="play" /></button>
-              </section>
+              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
 
               <section className="reference-side-card object-card">
                 <header><div><span>SELECTED OBJECT</span><h3>{selected.name}</h3></div><button aria-label="Object options">•••</button></header>
@@ -936,27 +865,7 @@ export default function Home() {
         </section>
       </section>
 
-      {assetLibraryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) { setAssetLibraryOpen(false); setReplaceAssetId(null); } }}>
-        <section className="asset-library" role="dialog" aria-modal="true" aria-labelledby="asset-library-title">
-          <header className="library-header">
-            <div><span>{replaceAssetId !== null ? "REPLACE SELECTED ASSET" : "3D CONTENT CATALOGUE"}</span><h2 id="asset-library-title">Civic asset library</h2><p>{replaceAssetId !== null ? "Choose a model below to swap it into the same position." : "Place optimized planning assets in the twin or download a model for your own 3D pipeline."}</p></div>
-            <button aria-label="Close asset library" onClick={() => { setAssetLibraryOpen(false); setReplaceAssetId(null); }}>×</button>
-          </header>
-          <div className="library-controls">
-            <label><span>⌕</span><input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search pumps, power, shelters…" /></label>
-            <div>{assetCategories.map((category) => <button key={category} className={assetCategory === category ? "active" : ""} onClick={() => setAssetCategory(category)}>{category}</button>)}</div>
-          </div>
-          <div className="asset-catalogue">
-            {filteredAssets.map((asset) => <article className="catalogue-card" key={asset.id}>
-              <div className={`catalogue-preview tone-${asset.tone} ${asset.preview ? "lidar-preview" : ""}`} style={asset.preview ? { backgroundImage: `url(${asset.preview})` } : undefined}>{!asset.preview && <span className={`asset-model model-${asset.id}`}><i /><b /></span>}<em>{asset.preview ? "OPEN3D" : "LOW POLY"}</em></div>
-              <div className="catalogue-copy"><span>{asset.category}</span><h3>{asset.name}</h3><p>{asset.description}</p><small>{asset.format ?? "OBJ"} · Metric scale · {asset.size}</small></div>
-              <div className={`catalogue-actions ${asset.file ? "has-view" : ""}`}>{asset.file && <button className="view-button" onClick={() => { setReplaceAssetId(null); setViewerAsset(asset); setAssetLibraryOpen(false); }}>◉ View 3D</button>}<button className="place-button" onClick={() => beginAssetPlacement(asset)}>{replaceAssetId !== null ? "↺ Use this model" : "＋ Place in twin"}</button><button className="download-button" onClick={() => downloadAsset(asset)}>↓ Download {asset.format ?? "OBJ"}</button></div>
-            </article>)}
-            {!filteredAssets.length && <div className="empty-assets"><strong>No assets found</strong><span>Try a different search or category.</span></div>}
-          </div>
-          <footer className="library-footer"><span><i /> {assetLibrary.length} verified planning assets</span><p>Includes three Open3D terrain reconstructions generated from the supplied IITH dataset.</p></footer>
-        </section>
-      </div>}
+      {assetLibraryOpen && <AssetPanel replacing={replaceAssetId !== null} search={assetSearch} onSearchChange={setAssetSearch} categories={assetCategories} category={assetCategory} onCategoryChange={setAssetCategory} assets={filteredAssets} totalCount={assetLibrary.length} onClose={() => { setAssetLibraryOpen(false); setReplaceAssetId(null); }} onView={(asset) => { setReplaceAssetId(null); setViewerAsset(asset); setAssetLibraryOpen(false); }} onPlace={beginAssetPlacement} onDownload={downloadAsset} />}
 
       {viewerAsset?.file && <div className="model-viewer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setViewerAsset(null); }}>
         <section className="model-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="model-viewer-title">
