@@ -11,13 +11,13 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
-const localBindingConfig = {
+const localBindingConfig = (d1Binding: string | null) => ({
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
-  d1_databases: d1
+  d1_databases: d1Binding
     ? [
         {
-          binding: d1,
+          binding: d1Binding,
           database_name: "site-creator-d1",
           database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
         },
@@ -31,9 +31,9 @@ const localBindingConfig = {
         },
       ]
     : [],
-};
+});
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ command }) => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -52,7 +52,9 @@ export default defineConfig(async () => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: localBindingConfig,
+        // hosting.json ships with the build, so local dev gets its own `DB`
+        // binding here rather than there; build output stays unchanged.
+        config: localBindingConfig(command === "serve" ? (d1 ?? "DB") : d1),
       }),
     ],
   };
