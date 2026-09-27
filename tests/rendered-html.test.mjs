@@ -109,6 +109,28 @@ test("a first visit never receives another visitor's session", async () => {
   assert.equal((await returning.json()).session.id, firstId);
 });
 
+test("a session's data can only be read by its owner", async () => {
+  const owner = await mf.dispatchFetch("http://localhost/api/session");
+  const ownerCookie = owner.headers.get("set-cookie").split(";")[0];
+  const sessionId = (await owner.json()).session.id;
+  const other = await mf.dispatchFetch("http://localhost/api/session");
+  const otherCookie = other.headers.get("set-cookie").split(";")[0];
+
+  const placed = await mf.dispatchFetch("http://localhost/api/assets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ sessionId, assetId: "pump", assetName: "Flood pump station", x: 10, y: 20 }),
+  });
+  assert.equal(placed.status, 201);
+
+  for (const route of ["assets", "lines", "areas", "buildings", "uploads"]) {
+    const res = await mf.dispatchFetch(`http://localhost/api/${route}?sessionId=${sessionId}`, { headers: { cookie: otherCookie } });
+    assert.equal(res.status, 404, `${route} must not be readable by another visitor`);
+  }
+  const own = await mf.dispatchFetch(`http://localhost/api/assets?sessionId=${sessionId}`, { headers: { cookie: ownerCookie } });
+  assert.equal((await own.json()).length, 1);
+});
+
 test("GET /api/ingest reports the health check", async () => {
   const response = await mf.dispatchFetch("http://localhost/api/ingest");
   assert.equal(response.status, 200);
