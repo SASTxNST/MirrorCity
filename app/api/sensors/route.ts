@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sensors } from "../../../db/schema";
 import { blankStringField, invalidNumberField } from "../_validate";
+import { requireAdmin } from "../_session-auth";
 
 function toError(e: unknown) {
   return e instanceof Error ? e.message : "Unexpected error";
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/sensors  — register a sensor node (call once per device)
+// POST /api/sensors  — register a sensor node (admin only; returns its deviceSecret)
 // Body: { roomId, hardwareId, name?, type?, x?, y?, z? }
 export async function POST(request: Request) {
   try {
@@ -40,6 +41,8 @@ export async function POST(request: Request) {
     if (!payload.roomId || !payload.hardwareId) {
       return Response.json({ error: "roomId and hardwareId required" }, { status: 400 });
     }
+    const authError = requireAdmin(request);
+    if (authError) return authError;
 
     const numberError = invalidNumberField({ x: payload.x, y: payload.y, z: payload.z });
     if (numberError) return numberError;
@@ -48,20 +51,18 @@ export async function POST(request: Request) {
 
     const db = getDb();
 
-    // Upsert — if a sensor with this hardwareId already exists for this room, return it
-    const existing = await db
-      .select({ id: sensors.id, roomId: sensors.roomId, hardwareId: sensors.hardwareId, name: sensors.name, type: sensors.type, x: sensors.x, y: sensors.y, z: sensors.z, active: sensors.active, createdAt: sensors.createdAt })
-      .from(sensors)
-      .where(eq(sensors.hardwareId, payload.hardwareId))
-      .limit(1);
+    // deviceSecret is only ever returned here (to the admin) — the device must
+    // store it and send it with every POST /api/ingest.
+    const deviceSecret = crypto.randomUUID();
 
-    if (existing.length > 0) {
-      return Response.json(existing[0]);
+    // Re-registering an existing device rotates its secret, so an admin can
+    // reclaim a device whose secret was claimed by someone else.
+    const [existing] = await db.select({ id: sensors.id }).from(sensors).where(eq(sensors.hardwareId, payload.hardwareId)).limit(1);
+    if (existing) {
+      const [rotated] = await db.update(sensors).set({ deviceSecret }).where(eq(sensors.id, existing.id)).returning();
+      return Response.json(rotated);
     }
 
-    // deviceSecret is only ever returned here, at registration — the
-    // device must store it and send it with every POST /api/ingest.
-    const deviceSecret = crypto.randomUUID();
     const [row] = await db
       .insert(sensors)
       .values({
@@ -93,6 +94,8 @@ export async function PUT(request: Request) {
       active?: boolean;
     };
     if (!payload.id) return Response.json({ error: "id required" }, { status: 400 });
+    const authError = requireAdmin(request);
+    if (authError) return authError;
 
     const numberError = invalidNumberField({ x: payload.x, y: payload.y, z: payload.z });
     if (numberError) return numberError;

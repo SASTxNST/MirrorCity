@@ -2,6 +2,7 @@ import { getDb } from "../../../db";
 import { rooms } from "../../../db/schema";
 import { eq } from "drizzle-orm";
 import { blankStringField, invalidNumberField } from "../_validate";
+import { requireAdmin } from "../_session-auth";
 
 function toError(e: unknown) {
   return e instanceof Error ? e.message : "Unexpected error";
@@ -18,7 +19,7 @@ export async function GET() {
   }
 }
 
-// POST /api/rooms — create a room
+// POST /api/rooms — create a room (the first room is open so /room can self-provision; later ones need the admin token)
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as {
@@ -35,6 +36,12 @@ export async function POST(request: Request) {
     if (stringError) return stringError;
 
     const db = getDb();
+    const [existing] = await db.select({ id: rooms.id }).from(rooms).limit(1);
+    if (existing) {
+      const authError = requireAdmin(request);
+      if (authError) return authError;
+    }
+
     const [row] = await db
       .insert(rooms)
       .values({
@@ -63,6 +70,8 @@ export async function PUT(request: Request) {
       heightM?: number;
     };
     if (!payload.id) return Response.json({ error: "id required" }, { status: 400 });
+    const authError = requireAdmin(request);
+    if (authError) return authError;
 
     const numberError = invalidNumberField({ widthM: payload.widthM, depthM: payload.depthM, heightM: payload.heightM });
     if (numberError) return numberError;
