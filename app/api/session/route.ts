@@ -15,9 +15,9 @@ function toError(error: unknown): string {
 }
 
 // GET /api/session — return this browser's own session, isolating it from
-// other visitors. A request with no owner cookie yet falls back to the
-// pre-Phase-3 behavior (single shared/latest session, created if none
-// exists) so local dev and non-browser callers keep working unchanged.
+// other visitors. A first visit (no owner cookie yet) adopts the latest
+// session only if nobody owns it (pre-Phase-3 data); otherwise it gets a
+// fresh one — never another visitor's.
 export async function GET(request: Request) {
   try {
     const db = getDb();
@@ -33,9 +33,8 @@ export async function GET(request: Request) {
     let session = owned[0];
 
     if (!session && setCookie) {
-      // Freshly issued token (no cookie was present) — fall back to the
-      // single shared/latest session for backward compatibility, claiming
-      // it for this token if nobody already has.
+      // Freshly issued token (no cookie was present) — claim the latest
+      // session if it predates ownership, so existing unowned data isn't lost.
       const [latest] = await db
         .select()
         .from(sessions)
@@ -44,8 +43,6 @@ export async function GET(request: Request) {
 
       if (latest && !latest.ownerToken) {
         [session] = await db.update(sessions).set({ ownerToken: token }).where(eq(sessions.id, latest.id)).returning();
-      } else {
-        session = latest;
       }
     }
 
