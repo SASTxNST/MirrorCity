@@ -23,13 +23,16 @@
  * Upload speed: 115200
  *
  * Device secret:
- *   POST /api/ingest now checks a deviceSecret against the one stored for
- *   this device. Register once — e.g. `curl -X POST $API_BASE/api/sensors
- *   -d '{"roomId":1,"hardwareId":"ESP_xxxx"}'` — copy the deviceSecret from
- *   that response into DEVICE_SECRET below, and re-flash. Until you do,
- *   the server accepts one ungated "grace" write from a device with no
- *   secret set yet, so a brand-new device still works before you've set
- *   this — but locks to whatever secret it's given from that point on.
+ *   POST /api/ingest only accepts registered devices, and checks a
+ *   deviceSecret against the one stored for this device. Register once
+ *   (needs the server's ROOM_ADMIN_TOKEN):
+ *     curl -X POST $API_BASE/api/sensors \
+ *       -H "Authorization: Bearer $ROOM_ADMIN_TOKEN" \
+ *       -H "Content-Type: application/json" \
+ *       -d '{"roomId":1,"hardwareId":"ESP_xxxx"}'
+ *   Copy the deviceSecret from the response into DEVICE_SECRET below and
+ *   re-flash. Re-running the same command issues a new secret (the old one
+ *   stops working), e.g. to recover a device.
  */
 
 #include <ESP8266WiFi.h>
@@ -51,8 +54,8 @@ const char* API_BASE      = "https://mirrorcity.YOUR_SUBDOMAIN.workers.dev";
 // Room ID in the database (1 if you only have one room)
 const int ROOM_ID = 1;
 
-// Secret returned once by POST /api/sensors at registration — leave empty
-// until you've registered this device (see "Device secret" note above).
+// Secret returned by POST /api/sensors at registration (see "Device
+// secret" note above). The server rejects readings until this is set.
 const char* DEVICE_SECRET = "";
 
 // How often to send a reading (milliseconds)

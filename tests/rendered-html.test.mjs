@@ -56,6 +56,7 @@ function collectJsModules(root) {
 }
 
 let mf;
+const ADMIN_TOKEN = "test-admin-token";
 
 before(async () => {
   const { Miniflare } = await import("miniflare");
@@ -72,12 +73,14 @@ before(async () => {
     // version supports — bump alongside wrangler/miniflare upgrades.
     compatibilityDate: "2026-05-22",
     d1Databases: { DB: "test-db" },
+    bindings: { ROOM_ADMIN_TOKEN: ADMIN_TOKEN },
   });
 
   const db = await mf.getD1Database("DB");
   const migrationsDir = new URL("../drizzle/", import.meta.url);
-  for (const file of ["0000_fixed_tyger_tiger.sql", "0001_new_gateway.sql", "0002_glamorous_colonel_america.sql", "0003_smart_smasher.sql"]) {
-    const sql = readFileSync(new URL(file, migrationsDir), "utf8");
+  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", migrationsDir), "utf8"));
+  for (const { tag } of journal.entries) {
+    const sql = readFileSync(new URL(`${tag}.sql`, migrationsDir), "utf8");
     for (const statement of sql.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) {
       await db.prepare(statement).run();
     }
@@ -129,6 +132,54 @@ test("a session's data can only be read by its owner", async () => {
   }
   const own = await mf.dispatchFetch(`http://localhost/api/assets?sessionId=${sessionId}`, { headers: { cookie: ownerCookie } });
   assert.equal((await own.json()).length, 1);
+});
+
+const json = (body, extra = {}) => ({ method: "POST", headers: { "Content-Type": "application/json", ...extra }, body: JSON.stringify(body) });
+const admin = { Authorization: `Bearer ${ADMIN_TOKEN}` };
+
+test("only a session's owner can upload into it", async () => {
+  const owner = await mf.dispatchFetch("http://localhost/api/session");
+  const sessionId = (await owner.json()).session.id;
+  const other = (await mf.dispatchFetch("http://localhost/api/session")).headers.get("set-cookie").split(";")[0];
+  const boundary = "----mcTestBoundary";
+  const body = `--${boundary}\r\nContent-Disposition: form-data; name="sessionId"\r\n\r\n${sessionId}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="scan.las"\r\nContent-Type: application/octet-stream\r\n\r\nx\r\n--${boundary}--\r\n`;
+  const res = await mf.dispatchFetch("http://localhost/api/uploads", { method: "POST", headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, cookie: other }, body });
+  assert.equal(res.status, 404);
+});
+
+test("the unused session snapshot endpoint is gone", async () => {
+  const res = await mf.dispatchFetch("http://localhost/api/session/snapshot", json({ label: "x" }));
+  assert.equal(res.status, 404);
+});
+
+test("rooms: first room is self-provisioned, everything after needs the admin token", async () => {
+  assert.equal((await mf.dispatchFetch("http://localhost/api/rooms", json({ name: "Lab" }))).status, 201);
+  assert.equal((await mf.dispatchFetch("http://localhost/api/rooms", json({ name: "Spam" }))).status, 401);
+  assert.equal((await mf.dispatchFetch("http://localhost/api/rooms", json({ name: "Annex" }, admin))).status, 201);
+  assert.equal((await mf.dispatchFetch("http://localhost/api/rooms", { ...json({ id: 1, name: "Renamed" }), method: "PUT" })).status, 401);
+});
+
+test("sensors: registration and edits need the admin token; re-registering rotates the secret", async () => {
+  assert.equal((await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T1" }))).status, 401);
+  const reg = await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T1" }, admin));
+  assert.equal(reg.status, 201);
+  const { id, deviceSecret } = await reg.json();
+  assert.ok(deviceSecret);
+  assert.equal((await mf.dispatchFetch("http://localhost/api/sensors", { ...json({ id, name: "x" }), method: "PUT" })).status, 401);
+  const again = await (await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T1" }, admin))).json();
+  assert.ok(again.deviceSecret && again.deviceSecret !== deviceSecret);
+});
+
+test("ingest: unknown devices are rejected, registered ones need their current secret", async () => {
+  const reading = (hardwareId, deviceSecret) => json({ hardwareId, roomId: 1, deviceSecret, readings: { temperature: 21 } });
+  assert.equal((await mf.dispatchFetch("http://localhost/api/ingest", reading("ESP_UNKNOWN"))).status, 401);
+
+  const { deviceSecret } = await (await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T2" }, admin))).json();
+  assert.equal((await mf.dispatchFetch("http://localhost/api/ingest", reading("ESP_T2", deviceSecret))).status, 200);
+
+  const first = (await (await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T3" }, admin))).json()).deviceSecret;
+  await mf.dispatchFetch("http://localhost/api/sensors", json({ roomId: 1, hardwareId: "ESP_T3" }, admin));
+  assert.equal((await mf.dispatchFetch("http://localhost/api/ingest", reading("ESP_T3", first))).status, 401, "rotated-out secret must stop working");
 });
 
 test("GET /api/ingest reports the health check", async () => {
