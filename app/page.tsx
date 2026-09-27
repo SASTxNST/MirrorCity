@@ -674,7 +674,7 @@ export default function Home() {
               <section className="twin-work-card">
                 <header className="twin-card-header">
                   <div><i /><span><small>ACTIVE DISTRICT</small><strong>{districtName}</strong></span></div>
-                  <div className="twin-card-meta"><span>128 sensors</span><span>LOD 02</span><button onClick={() => setToast("Snapshot saved to scenario history")}>Save snapshot</button></div>
+                  <div className="twin-card-meta"><span>128 sensors</span><span>LOD 02</span><button onClick={() => setToast("Scenario snapshots aren't available yet")}>Save snapshot</button></div>
                 </header>
 
                 <div className={`reference-map tool-${tool}`} role="region" aria-label="Interactive 3D district twin">
