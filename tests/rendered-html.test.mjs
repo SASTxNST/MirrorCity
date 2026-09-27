@@ -97,6 +97,18 @@ test("GET /api/session returns the active session", async () => {
   assert.equal(body.session.districtName, "Varuna River Ward");
 });
 
+test("a first visit never receives another visitor's session", async () => {
+  const first = await mf.dispatchFetch("http://localhost/api/session");
+  const firstCookie = first.headers.get("set-cookie").split(";")[0];
+  const firstId = (await first.json()).session.id;
+
+  const second = await mf.dispatchFetch("http://localhost/api/session");
+  assert.notEqual((await second.json()).session.id, firstId);
+
+  const returning = await mf.dispatchFetch("http://localhost/api/session", { headers: { cookie: firstCookie } });
+  assert.equal((await returning.json()).session.id, firstId);
+});
+
 test("GET /api/ingest reports the health check", async () => {
   const response = await mf.dispatchFetch("http://localhost/api/ingest");
   assert.equal(response.status, 200);
