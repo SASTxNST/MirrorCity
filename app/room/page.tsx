@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -122,7 +123,7 @@ export default function RoomTwin() {
   // ── Load room meta ──────────────────────────────────────────────────────────
   useEffect(() => {
     fetch("/api/rooms")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error("API error"); return r.json(); })
       .then((rows: RoomMeta[]) => {
         if (rows.length > 0) setRoom(rows[0]);
         else {
@@ -132,7 +133,7 @@ export default function RoomTwin() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: "SAST Lab", widthM: 8, depthM: 6, heightM: 3 }),
           })
-            .then((r) => r.json())
+            .then((r) => { if (!r.ok) throw new Error("API error"); return r.json(); })
             .then((r: RoomMeta) => setRoom(r));
         }
       })
@@ -177,6 +178,7 @@ export default function RoomTwin() {
 
   // Poll on mount and every POLL_INTERVAL_MS
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pollSensors only sets state after its first await (the fetch), never synchronously
     pollSensors().finally(() => setLoading(false));
     const id = window.setInterval(pollSensors, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
@@ -184,7 +186,7 @@ export default function RoomTwin() {
 
   // ── Load history when sensor selected ──────────────────────────────────────
   useEffect(() => {
-    if (!selectedSensor) { setHistory([]); return; }
+    if (!selectedSensor) return;
     fetch(`/api/sensor-readings/history?sensorId=${selectedSensor.sensorId}&metric=${historyMetric}&hours=6`)
       .then((r) => r.json())
       .then((d: { data: HistoryPoint[] }) => setHistory(d.data ?? []))
@@ -382,7 +384,7 @@ export default function RoomTwin() {
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <header className="room-topbar">
         <div className="room-topbar-left">
-          <a href="/" className="room-back">← City twin</a>
+          <Link href="/" className="room-back">← City twin</Link>
           <span className="room-title">{room?.name ?? "Room Twin"}</span>
           {room && <span className="room-dims">{room.widthM} × {room.depthM} × {room.heightM} m</span>}
         </div>
@@ -413,7 +415,7 @@ export default function RoomTwin() {
             <button
               key={s.sensorId}
               className={`room-sensor-card ${isSelected ? "selected" : ""} ${!s.active ? "inactive" : ""}`}
-              onClick={() => setSelectedSensor(isSelected ? null : s)}
+              onClick={() => { if (isSelected) setHistory([]); setSelectedSensor(isSelected ? null : s); }}
             >
               <div className="rsc-header">
                 <span className="rsc-dot" style={{ background: t ? tempColor(t.value) : "#555" }} />
@@ -437,7 +439,7 @@ export default function RoomTwin() {
         <div className="room-detail">
           <div className="room-detail-header">
             <strong>{selectedSensor.name}</strong>
-            <button onClick={() => setSelectedSensor(null)}>✕</button>
+            <button onClick={() => { setHistory([]); setSelectedSensor(null); }}>✕</button>
           </div>
 
           <div className="room-detail-grid">
