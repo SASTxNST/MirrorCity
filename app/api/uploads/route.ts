@@ -48,6 +48,8 @@ export async function POST(request: Request) {
     if (!sessionId) {
       return Response.json({ error: "sessionId required" }, { status: 400 });
     }
+    const authError = await requireOwnedSession(request, sessionId);
+    if (authError) return authError;
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "unknown";
     const allowedTypes = ["las", "laz", "tif", "tiff", "obj", "ply", "glb", "gltf", "fbx", "png", "jpg", "jpeg"];
