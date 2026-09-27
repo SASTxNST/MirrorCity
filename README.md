@@ -51,7 +51,7 @@ The current repository is an early, browser-based proof of concept—not yet a p
 | **Infrastructure authoring** | Draw sewer, power, water, and road corridors; mark planning zones; and place proposed buildings. |
 | **Scenario workspace** | Interactive population, sewer-capacity, flood, evacuation, and incident-response demonstrations. |
 | **Operational view** | Layer controls, sensor indicators, capital-work status, simulated vehicles, asset health, and an event feed. |
-| **Comparison workflow** | Current-versus-proposed district view and scenario snapshots. |
+| **Comparison workflow** | Current-versus-proposed district view. |
 
 ### IITH LiDAR terrain reconstructions
 
@@ -296,6 +296,14 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+Registering room sensors (and creating/editing rooms after the first one) needs an admin token. Locally, put it in `.dev.vars` (git-ignored) and restart `npm run dev`:
+
+```bash
+echo 'ROOM_ADMIN_TOKEN=pick-a-long-random-string' > .dev.vars
+```
+
+Send it as `Authorization: Bearer <token>`; see `firmware/room_sensor.ino` for the device registration command. Without it set, those endpoints refuse every request.
 
 ### Validate a production build
 
