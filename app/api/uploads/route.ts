@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { uploads } from "../../../db/schema";
 import { blankStringField } from "../_validate";
+import { requireOwnedSession } from "../_session-auth";
 
 function toError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -19,6 +20,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const sessionId = Number(url.searchParams.get("sessionId"));
     if (!sessionId) return Response.json({ error: "sessionId required" }, { status: 400 });
+    const authError = await requireOwnedSession(request, sessionId);
+    if (authError) return authError;
 
     const db = getDb();
     const rows = await db

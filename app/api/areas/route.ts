@@ -20,6 +20,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const sessionId = Number(url.searchParams.get("sessionId"));
     if (!sessionId) return Response.json({ error: "sessionId required" }, { status: 400 });
+    const authError = await requireOwnedSession(request, sessionId);
+    if (authError) return authError;
 
     const db = getDb();
     const rows = await db
