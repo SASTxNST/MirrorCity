@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
     const db = getDb();
 
-    // Find or auto-register the sensor
+    // Devices must be registered first (admin-only POST /api/sensors).
     let sensorRow = (await db
       .select()
       .from(sensors)
@@ -69,20 +69,11 @@ export async function POST(request: Request) {
       .limit(1))[0];
 
     if (!sensorRow) {
-      [sensorRow] = await db
-        .insert(sensors)
-        .values({
-          roomId: payload.roomId,
-          hardwareId: payload.hardwareId,
-          name: `Auto: ${payload.hardwareId}`,
-          type: "env",
-          deviceSecret: payload.deviceSecret || null,
-        })
-        .returning();
+      return Response.json({ error: "Unknown device — register it via POST /api/sensors first" }, { status: 401 });
     } else if (!sensorRow.deviceSecret) {
-      // Grace write — this device has never had a secret set (an
-      // already-deployed device from before this change). Adopt whatever
-      // it sends now, if anything, as its secret going forward.
+      // Grace write — only legacy devices (registered before secrets existed)
+      // can lack one. Adopt whatever it sends now as its secret going forward;
+      // an admin can reclaim the device by re-registering it (rotates the secret).
       if (payload.deviceSecret) {
         [sensorRow] = await db
           .update(sensors)
