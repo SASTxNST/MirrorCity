@@ -347,6 +347,49 @@ export default function CityEngine(props: Props) {
     return () => { observer.disconnect(); cancelAnimationFrame(frame); timer.dispose(); controls.dispose(); renderer.dispose(); scene.traverse((object) => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach((material) => material.dispose()); } }); renderer.domElement.remove(); runtimeRef.current = null; };
   }, []);
 
+  // Spike: stream a 3D Tiles tileset into the scene when the page is opened
+  // with ?tileset=<url>. Runs its own update loop so the main loop is untouched,
+  // and loads the renderer on demand so normal visits don't download it.
+  useEffect(() => {
+    const url = new URLSearchParams(window.location.search).get("tileset");
+    const runtime = runtimeRef.current;
+    if (!url || !runtime) return;
+    let unmounted = false;
+    let cleanup = () => {};
+    import("3d-tiles-renderer/three").then(({ TilesRenderer }) => {
+      if (unmounted) return;
+      const { scene, camera, renderer } = runtime;
+      const tiles = new TilesRenderer(url);
+      tiles.setCamera(camera);
+      tiles.group.rotation.x = -Math.PI / 2; // 3D Tiles is Z-up; the scene is Y-up
+      scene.add(tiles.group);
+
+      // Scale the tileset to fit the district and rest it on the ground plane.
+      const fit = () => {
+        const box = new THREE.Box3();
+        if (!tiles.getBoundingBox(box)) return;
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const scale = 0.9 * Math.min(WORLD_W / size.x, WORLD_D / size.y);
+        tiles.group.scale.setScalar(scale);
+        tiles.group.position.set(-center.x * scale, -box.min.z * scale + 0.02, center.y * scale);
+      };
+      tiles.addEventListener("load-root-tileset", fit);
+
+      let frame = 0;
+      const update = () => {
+        frame = requestAnimationFrame(update);
+        tiles.setResolutionFromRenderer(camera, renderer);
+        camera.updateMatrixWorld();
+        tiles.update();
+      };
+      update();
+
+      cleanup = () => { cancelAnimationFrame(frame); tiles.removeEventListener("load-root-tileset", fit); scene.remove(tiles.group); tiles.dispose(); };
+    });
+    return () => { unmounted = true; cleanup(); };
+  }, []);
+
   useEffect(() => {
     const runtime = runtimeRef.current; if (!runtime) return;
     runtime.buildingsGroup.visible = props.layers.buildings;

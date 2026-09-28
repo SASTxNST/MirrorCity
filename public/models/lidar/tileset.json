@@ -1,0 +1,95 @@
+{
+  "asset": {
+    "version": "1.1",
+    "gltfUpAxis": "Z"
+  },
+  "geometricError": 50,
+  "root": {
+    "boundingVolume": {
+      "box": [
+        0.25,
+        0.81,
+        -0.62,
+        52.45,
+        0,
+        0,
+        0,
+        34.16,
+        0,
+        0,
+        0,
+        3.51
+      ]
+    },
+    "geometricError": 50,
+    "refine": "ADD",
+    "children": [
+      {
+        "boundingVolume": {
+          "box": [
+            0.25,
+            0.81,
+            -0.6,
+            52.45,
+            0,
+            0,
+            0,
+            34.16,
+            0,
+            0,
+            0,
+            2.4
+          ]
+        },
+        "geometricError": 0,
+        "content": {
+          "uri": "road-terrain.glb"
+        }
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            8.42,
+            -1.94,
+            -0.27,
+            42.81,
+            0,
+            0,
+            0,
+            22.32,
+            0,
+            0,
+            0,
+            3.17
+          ]
+        },
+        "geometricError": 0,
+        "content": {
+          "uri": "building-masses.glb"
+        }
+      },
+      {
+        "boundingVolume": {
+          "box": [
+            -1.22,
+            0.3,
+            -0.95,
+            50.94,
+            0,
+            0,
+            0,
+            24.64,
+            0,
+            0,
+            0,
+            3.18
+          ]
+        },
+        "geometricError": 0,
+        "content": {
+          "uri": "street-assets.glb"
+        }
+      }
+    ]
+  }
+}

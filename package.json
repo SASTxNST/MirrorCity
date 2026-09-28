@@ -17,6 +17,7 @@
     "flood:run": "python -m scripts.flood.run_simulation"
   },
   "dependencies": {
+    "3d-tiles-renderer": "0.5.3",
     "drizzle-orm": "0.45.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",
