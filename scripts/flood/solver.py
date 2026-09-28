@@ -216,6 +216,16 @@ class FloodSolver:
             elevation
         )
 
+        # Face discharges (m²/s), carried between steps by the
+        # local-inertial flux update.
+        self.qx = np.zeros(
+            (self.ny, self.nx + 1),
+        )
+
+        self.qy = np.zeros(
+            (self.ny + 1, self.nx),
+        )
+
         self.time = 0.0
 
         # Cumulative bookkeeping.
@@ -309,7 +319,17 @@ class FloodSolver:
 
     def _calculate_fluxes(
         self,
+        dt: float,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Local-inertial face discharges (Bates et al., 2010):
+
+            q = (q - g h dt S) / (1 + g dt n² |q| / h^(7/3))
+
+        A plain Manning (diffusive-wave) flux is unstable under the
+        gravity-wave timestep used here: ponded water oscillates until
+        depth overflows. The inertial term keeps it stable.
+        """
 
         eta = (
             self.elevation
@@ -359,28 +379,24 @@ class FloodSolver:
             1.0e-8,
         )
 
-        velocity = (
-            positive_depth ** (2.0 / 3.0)
-            * np.sqrt(
-                np.abs(gradient_x)
-            )
-            / (
-                0.5
-                * (
-                    self.manning_n[:, :-1]
-                    + self.manning_n[:, 1:]
-                )
-            )
+        roughness = 0.5 * (
+            self.manning_n[:, :-1]
+            + self.manning_n[:, 1:]
         )
 
-        velocity *= np.sign(
-            gradient_x
-        )
+        previous = self.qx[:, 1:-1]
 
         discharge = (
-            water_depth
-            * velocity
+            previous
+            - 9.81 * water_depth * dt * gradient_x
+        ) / (
+            1.0
+            + 9.81 * dt * roughness**2
+            * np.abs(previous)
+            / positive_depth ** (7.0 / 3.0)
         )
+
+        discharge[water_depth <= 1.0e-8] = 0.0
 
         # Do not move water through obstacles.
         discharge[
@@ -388,7 +404,7 @@ class FloodSolver:
             | blocked_right
         ] = 0.0
 
-        qx[:, 1:-1] = -discharge
+        qx[:, 1:-1] = discharge
 
         # ========================================================
         # Y direction
@@ -417,35 +433,31 @@ class FloodSolver:
             1.0e-8,
         )
 
-        velocity = (
-            positive_depth ** (2.0 / 3.0)
-            * np.sqrt(
-                np.abs(gradient_y)
-            )
-            / (
-                0.5
-                * (
-                    self.manning_n[:-1, :]
-                    + self.manning_n[1:, :]
-                )
-            )
+        roughness = 0.5 * (
+            self.manning_n[:-1, :]
+            + self.manning_n[1:, :]
         )
 
-        velocity *= np.sign(
-            gradient_y
-        )
+        previous = self.qy[1:-1, :]
 
         discharge = (
-            water_depth
-            * velocity
+            previous
+            - 9.81 * water_depth * dt * gradient_y
+        ) / (
+            1.0
+            + 9.81 * dt * roughness**2
+            * np.abs(previous)
+            / positive_depth ** (7.0 / 3.0)
         )
+
+        discharge[water_depth <= 1.0e-8] = 0.0
 
         discharge[
             blocked_top
             | blocked_bottom
         ] = 0.0
 
-        qy[1:-1, :] = -discharge
+        qy[1:-1, :] = discharge
 
         # ========================================================
         # Boundary conditions
@@ -649,7 +661,7 @@ class FloodSolver:
         # --------------------------------------------------------
 
         qx, qy = (
-            self._calculate_fluxes()
+            self._calculate_fluxes(dt)
         )
 
         divergence = (
@@ -736,6 +748,8 @@ class FloodSolver:
         )
 
         self.depth = new_depth
+        self.qx = qx
+        self.qy = qy
 
         self.time += dt
 
