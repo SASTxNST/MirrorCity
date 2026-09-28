@@ -47,6 +47,8 @@ export default defineConfig(async ({ command }) => {
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
+    // Pyodide only runs in module workers (Vite's default build format is classic).
+    worker: { format: "es" as const },
     plugins: [
       vinext(),
       sites(),
