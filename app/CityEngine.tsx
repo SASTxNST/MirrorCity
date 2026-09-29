@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import type { FloodMaps } from "../lib/city-metrics";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 type Point = { x: number; y: number };
@@ -40,6 +41,7 @@ type Props = {
   zoom: number;
   activeScenario: "sewer" | "flood" | "evacuation";
   population: number;
+  floodMap?: FloodMaps | null;
   simulationRunning: boolean;
   simulationComplete: boolean;
   operationalMode: boolean;
@@ -70,6 +72,7 @@ type Runtime = {
 };
 
 const WORLD_W = 24;
+const FLOOD_OVERLAY_LIFT_M = 0.08;
 const WORLD_D = 18;
 const toneColors: Record<string, number> = { teal: 0x00d8ff, blue: 0x3b82f6, sand: 0x78a7ff, yellow: 0x2f5fff, slate: 0x5376a5 };
 const lineColors = { sewer: 0x4f6fff, power: 0x00dfff, water: 0x168cff, road: 0xb8cbff };
@@ -171,6 +174,7 @@ export default function CityEngine(props: Props) {
   const runtimeRef = useRef<Runtime | null>(null);
   const propsRef = useRef(props);
   const annotationRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [tilesGroup, setTilesGroup] = useState<THREE.Group | null>(null);
   const shapeKey = useMemo(() => props.placedAssets.map((placed) => `${placed.id}:${placed.asset.id}`).join("|"), [props.placedAssets]);
 
   useEffect(() => { propsRef.current = props; }, [props]);
@@ -375,6 +379,7 @@ export default function CityEngine(props: Props) {
         tiles.group.position.set(-center.x * scale, -box.min.z * scale + 0.02, center.y * scale);
       };
       tiles.addEventListener("load-root-tileset", fit);
+      setTilesGroup(tiles.group);
 
       let frame = 0;
       const update = () => {
@@ -389,6 +394,32 @@ export default function CityEngine(props: Props) {
     });
     return () => { unmounted = true; cleanup(); };
   }, []);
+
+  // Flood depth overlay on the streamed LiDAR tiles: one water column per wet
+  // cell, placed in the tiles' own (scan) coordinates so it lines up with them.
+  const { floodMap } = props;
+  useEffect(() => {
+    if (!tilesGroup || !floodMap?.origin_m) return;
+    const { origin_m: [x0, y0], cell_m: cell, peak_depth_m: depth, elevation_m: elevation, cell_kind: kind } = floodMap;
+    const wet = depth.flatMap((row, j) => row.flatMap((value, i) => (kind[j][i] === 0 && value >= 0.01 ? [[i, j, value]] : [])));
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.65, depthWrite: false });
+    const mesh = new THREE.InstancedMesh(geometry, material, Math.max(wet.length, 1));
+    mesh.count = wet.length;
+    const matrix = new THREE.Matrix4();
+    const color = new THREE.Color();
+    wet.forEach(([i, j, value], index) => {
+      // Display only: the column runs from just under the ground to a few cm
+      // above the water, so the scan's own bumps within a cell don't hide it.
+      const bottom = elevation[j][i] - FLOOD_OVERLAY_LIFT_M;
+      const top = elevation[j][i] + value + FLOOD_OVERLAY_LIFT_M;
+      matrix.compose(new THREE.Vector3(x0 + (i + 0.5) * cell, y0 + (j + 0.5) * cell, (bottom + top) / 2), new THREE.Quaternion(), new THREE.Vector3(cell, cell, top - bottom));
+      mesh.setMatrixAt(index, matrix);
+      mesh.setColorAt(index, color.setRGB(0.35 - 0.3 * Math.min(value / 0.3, 1), 0.82 - 0.4 * Math.min(value / 0.3, 1), 1));
+    });
+    tilesGroup.add(mesh);
+    return () => { tilesGroup.remove(mesh); geometry.dispose(); material.dispose(); };
+  }, [tilesGroup, floodMap]);
 
   useEffect(() => {
     const runtime = runtimeRef.current; if (!runtime) return;

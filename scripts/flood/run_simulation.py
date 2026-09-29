@@ -83,6 +83,17 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--drain-capacity",
+        type=float,
+        default=0.0,
+        help=(
+            "Storm-drain capacity in mm/hour over "
+            "paved surfaces (all cells if the "
+            "terrain has no surface types)."
+        ),
+    )
+
+    parser.add_argument(
         "--open-edges",
         action="store_true",
         help=(
@@ -305,6 +316,20 @@ def main() -> None:
             if args.terrain
             else None
         ),
+        # Cells outside the surveyed area: water flowing there leaves.
+        sink_mask=(
+            load_layer(args.terrain, "outside")
+            if args.terrain
+            else None
+        ),
+        drain_rate=(
+            args.drain_capacity / 1000.0 / 3600.0
+            * (
+                1.0
+                if surface is None
+                else np.isin(surface, IMPERVIOUS_SURFACES)
+            )
+        ),
     )
 
     print()
@@ -422,6 +447,26 @@ def main() -> None:
     # Summary
     # ============================================================
 
+    street = (
+        ~solver.obstacle_mask
+        & ~solver.sink_mask
+    )
+
+    rain_on_street = max(
+        solver.total_rainfall_depth
+        * (
+            street.sum()
+            + solver.roof_cells.sum()
+        ),
+        1.0e-12,
+    )
+
+    origin = (
+        load_layer(args.terrain, "origin")
+        if args.terrain
+        else None
+    )
+
     summary = {
         "model": (
             "MirrorCity 2-D diffusive "
@@ -468,24 +513,62 @@ def main() -> None:
             "infiltration_depth_mean_m": (
                 solver.total_infiltration_depth
             ),
-            # Share of the rain reaching open ground (directly or
-            # off roofs; rain on other obstacles is removed) that
-            # soaked in.
+            # Share of the rain reaching the street (directly or
+            # off roofs) that soaked in / went down the drains.
             "rain_soaked_in_fraction": (
                 solver.total_infiltration_depth
                 * obstacle_mask.size
-                / max(
-                    solver.total_rainfall_depth
-                    * (
-                        (~solver.obstacle_mask).sum()
-                        + solver.roof_cells.sum()
-                    ),
-                    1.0e-12,
-                )
+                / rain_on_street
+            ),
+            "rain_drained_fraction": (
+                solver.total_drained_volume
+                / (rain_on_street * dx * dy)
+            ),
+            "drained_m3": solver.total_drained_volume,
+            # Deepest water anywhere, at any time, and when.
+            "peak_depth_m": float(solver.peak_depth.max()),
+            "peak_time_s": solver.peak_time,
+            # Share of street cells whose water ever exceeded 10 cm,
+            # and whose depth-velocity hazard ever reached "high"
+            # (solver.hazard_index >= 0.5).
+            "flooded_street_fraction": float(
+                (solver.peak_depth[street] > 0.10).mean()
+            ),
+            "high_hazard_street_fraction": float(
+                (solver.peak_hazard[street] >= 0.5).mean()
             ),
             "boundary_outflow_m3": (
                 solver.total_outflow_volume
             ),
+        },
+        "timeline": {
+            "time_s": [state.time for state in states],
+            "water_volume_m3": [
+                round(float(state.depth.sum() * dx * dy), 3)
+                for state in states
+            ],
+            "max_depth_m": [
+                round(float(state.depth.max()), 4)
+                for state in states
+            ],
+        },
+        # Per-cell grids, row j = y. Kept small: the grids here are
+        # a few thousand cells.
+        "maps": {
+            "origin_m": (
+                None
+                if origin is None
+                else [float(value) for value in origin]
+            ),
+            "cell_m": dx,
+            "peak_depth_m": np.round(solver.peak_depth, 3).tolist(),
+            "peak_hazard": np.round(solver.peak_hazard, 3).tolist(),
+            "elevation_m": np.round(elevation, 3).tolist(),
+            # 0 street, 1 building, 2 outside the survey.
+            "cell_kind": (
+                solver.obstacle_mask.astype(int)
+                + 2 * solver.sink_mask
+            ).tolist(),
         },
         "files": {
             "terrain": (

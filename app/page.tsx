@@ -6,7 +6,7 @@ import Image from "next/image";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
-import { evacuationMetrics, floodMetrics, sewerLoad, type FloodResults } from "../lib/city-metrics";
+import { evacuationMetrics, floodMetrics, sewerLoad, type FloodRun } from "../lib/city-metrics";
 import FloodWorker from "./flood-worker.ts?worker";
 import { Icon, type IconName } from "./components/Icon";
 import AssetPanel, { type AssetDefinition } from "./components/AssetPanel";
@@ -53,6 +53,10 @@ const buildings = [
   { id: 11, name: "Emergency Hub", type: "Response center", x: 61, y: 70, w: 78, d: 66, h: 58, tone: "yellow" },
   { id: 12, name: "Solar Microgrid", type: "Energy", x: 80, y: 72, w: 82, d: 64, h: 25, tone: "sand" },
 ];
+
+// Assumed street-drain capacity for the flood model (uncalibrated; real
+// drain data would replace this).
+const DRAIN_CAPACITY_MM_PER_HOUR = 20;
 
 const scenarios = {
   sewer: { label: "Sewer capacity", kicker: "FLOW SIMULATION", accent: "#4f6fff" },
@@ -140,7 +144,8 @@ export default function Home() {
   const [activeScenario, setActiveScenario] = useState<ScenarioKey>("sewer");
   const [population, setPopulation] = useState(2000);
   const [rainfall, setRainfall] = useState(100);
-  const [flood, setFlood] = useState<{ rainfall: number; results: FloodResults } | null>(null);
+  const [stormMinutes, setStormMinutes] = useState(60);
+  const [flood, setFlood] = useState<{ rainfall: number; stormMinutes: number; run: FloodRun } | null>(null);
   const floodWorkerRef = useRef<Worker | null>(null);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false, sensors: true, construction: true });
   const [, setInspectorTab] = useState<"simulation" | "operations" | "object">("simulation");
@@ -209,7 +214,9 @@ export default function Home() {
     help: "Help center",
   };
 
-  const floodResults = flood?.rainfall === rainfall ? flood.results : null;
+  // Results only show while the sliders still match the storm they came from.
+  const floodRun = flood?.rainfall === rainfall && flood.stormMinutes === stormMinutes ? flood.run : null;
+  const floodResults = floodRun?.results ?? null;
 
   const metricSet = useMemo(() => {
     if (activeScenario === "flood") return floodMetrics(floodResults);
@@ -227,12 +234,14 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/session")
       .then((res) => res.json())
-      .then((data: { session?: { id: number; districtName: string; population: number; activeScenario: string; layers: string } }) => {
+      .then((data: { session?: { id: number; districtName: string; population: number; floodRainfall?: number; floodStormMinutes?: number; activeScenario: string; layers: string } }) => {
         if (!data.session) { setLoading(false); return; }
         const s = data.session;
         setSessionId(s.id);
         setDistrictName(s.districtName);
         setPopulation(s.population);
+        if (typeof s.floodRainfall === "number") setRainfall(s.floodRainfall);
+        if (typeof s.floodStormMinutes === "number") setStormMinutes(s.floodStormMinutes);
         if (s.activeScenario && Object.keys(scenarios).includes(s.activeScenario)) {
           setActiveScenario(s.activeScenario as ScenarioKey);
         }
@@ -316,15 +325,25 @@ export default function Home() {
       // Runs scripts/flood in the browser (Pyodide); the first run downloads Python (~8.5 MB).
       floodWorkerRef.current ??= new FloodWorker();
       const worker = floodWorkerRef.current;
-      const inputs = { rainfall, duration: 3600, terrain: "lidar-street" as const };
+      const inputs = { rainfall, stormMinutes, duration: stormMinutes * 60, terrain: "lidar-street" as const, drainCapacity: DRAIN_CAPACITY_MM_PER_HOUR };
       setToast("Running flood model… first run downloads the model");
       const finish = (error: string | null) => {
         setRunning(false);
         setComplete(!error);
         setToast(error ? `Flood model failed · ${error}` : `${scenario.label} simulation complete`);
       };
-      worker.onmessage = ({ data }: MessageEvent<{ ok: true; summary: { results: FloodResults } } | { ok: false; error: string }>) => {
-        if (data.ok) setFlood({ rainfall: inputs.rainfall, results: data.summary.results });
+      worker.onmessage = ({ data }: MessageEvent<{ ok: true; summary: FloodRun } | { ok: false; error: string }>) => {
+        if (data.ok) {
+          setFlood({ rainfall: inputs.rainfall, stormMinutes: inputs.stormMinutes, run: data.summary });
+          // Remember the storm with the session; best effort, like other session settings.
+          if (sessionId) {
+            fetch("/api/session", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ floodRainfall: inputs.rainfall, floodStormMinutes: inputs.stormMinutes }),
+            }).catch(() => {});
+          }
+        }
         finish(data.ok ? null : data.error);
       };
       worker.onerror = () => finish("worker could not start");
@@ -733,7 +752,7 @@ export default function Home() {
                   </div>}
 
                   <CityEngineErrorBoundary>
-                    <CityEngine tool={tool} buildings={buildings} placedAssets={addedAssets} plannedBuildings={plannedBuildings} drawnLines={drawnLines} drawnAreas={drawnAreas} draftPoints={draftPoints} lineKind={lineKind} selectedAsset={selectedAsset} selectedPlacedAssetId={selectedPlacedAssetId} selectedBuildingId={selectedId} layers={layers} zoom={zoom} activeScenario={activeScenario} population={population} simulationRunning={running} simulationComplete={complete} operationalMode={operationalMode} incidentActive={incidentActive} annotations={annotations} onAnnotationSelect={(id) => { const item = annotations.find((annotation) => annotation.id === id); if (item) setToast(`${item.label} · ${item.value} · ${item.detail}`); }} onMapPoint={handleMapPoint} onSelectAsset={(id) => { setSelectedPlacedAssetId(id); setTool("select"); setToast("3D asset selected · drag it across the ground"); }} onMoveAsset={(id, point) => updatePlacedAsset(id, point)} onSelectBuilding={(id) => { setSelectedId(id); setSelectedPlacedAssetId(null); setInspectorTab("object"); setTool("select"); }} />
+                    <CityEngine tool={tool} buildings={buildings} placedAssets={addedAssets} plannedBuildings={plannedBuildings} drawnLines={drawnLines} drawnAreas={drawnAreas} draftPoints={draftPoints} lineKind={lineKind} selectedAsset={selectedAsset} selectedPlacedAssetId={selectedPlacedAssetId} selectedBuildingId={selectedId} layers={layers} zoom={zoom} activeScenario={activeScenario} population={population} floodMap={activeScenario === "flood" ? floodRun?.maps ?? null : null} simulationRunning={running} simulationComplete={complete} operationalMode={operationalMode} incidentActive={incidentActive} annotations={annotations} onAnnotationSelect={(id) => { const item = annotations.find((annotation) => annotation.id === id); if (item) setToast(`${item.label} · ${item.value} · ${item.detail}`); }} onMapPoint={handleMapPoint} onSelectAsset={(id) => { setSelectedPlacedAssetId(id); setTool("select"); setToast("3D asset selected · drag it across the ground"); }} onMoveAsset={(id, point) => updatePlacedAsset(id, point)} onSelectBuilding={(id) => { setSelectedId(id); setSelectedPlacedAssetId(null); setInspectorTab("object"); setTool("select"); }} />
                   </CityEngineErrorBoundary>
 
                   {operationalMode && <span className="live-tick">FEED #{String(liveTick + 1842).padStart(6, "0")}</span>}
@@ -874,7 +893,7 @@ export default function Home() {
             </section>
 
             <aside className="reference-aside">
-              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} rainfall={rainfall} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} onRainfallChange={(value) => { setRainfall(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
+              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} rainfall={rainfall} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} stormMinutes={stormMinutes} drainCapacity={DRAIN_CAPACITY_MM_PER_HOUR} floodRun={floodRun} onRainfallChange={(value) => { setRainfall(value); setComplete(false); }} onStormMinutesChange={(value) => { setStormMinutes(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
 
               <section className="reference-side-card object-card">
                 <header><div><span>SELECTED OBJECT</span><h3>{selected.name}</h3></div><button aria-label="Object options">•••</button></header>

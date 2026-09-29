@@ -6,6 +6,8 @@ export const sessions = sqliteTable("sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   districtName: text("district_name").notNull().default("Varuna River Ward"),
   population: integer("population").notNull().default(2000),
+  floodRainfall: integer("flood_rainfall").notNull().default(100),
+  floodStormMinutes: integer("flood_storm_minutes").notNull().default(60),
   activeScenario: text("active_scenario").notNull().default("sewer"),
   layers: text("layers").notNull().default("{}"),
   label: text("label").notNull().default(""),

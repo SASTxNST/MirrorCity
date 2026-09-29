@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Pyodide runtime copied by scripts/vendor-pyodide.mjs.
+    "public/pyodide/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

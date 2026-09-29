@@ -3,8 +3,9 @@ Build a flood-model terrain grid from the LiDAR street scan.
 
 Rasterizes public/models/lidar/road-terrain.obj (a Z-up ground mesh) onto
 a regular grid and marks the scanned building masses as roofs (obstacles
-whose rain drains to the ground). Cells
-the scan never covered are obstacles too: the model has no ground there.
+whose rain drains to the ground). Beyond the street, cells where the
+point cloud shows a structure (wall, fence, hedge) are walls; the rest
+are "outside": water that flows there leaves the model.
 Each cell also gets a surface type (road / concrete / grass) recovered
 from the mesh's semantic colours, for per-surface roughness and
 infiltration.
@@ -37,6 +38,52 @@ SURFACE_COLOURS = {
     "concrete": [(0.61, 0.57, 0.48), (0.47, 0.45, 0.40)],  # sidewalk, other ground
     "grass": [(0.39, 0.48, 0.38)],  # terrain
 }
+
+
+def read_point_cloud(path: Path) -> np.ndarray:
+    """x, y, z, r, g, b (colours 0-1) from Open3D's binary PLY point clouds."""
+
+    data = path.read_bytes()
+    body = data[data.index(b"end_header\n") + len(b"end_header\n"):]
+    points = np.frombuffer(body, dtype=np.dtype([
+        ("x", "<f8"), ("y", "<f8"), ("z", "<f8"),
+        ("r", "u1"), ("g", "u1"), ("b", "u1"),
+    ]))
+
+    return np.column_stack([
+        points["x"], points["y"], points["z"],
+        points["r"] / 255.0, points["g"] / 255.0, points["b"] / 255.0,
+    ])
+
+
+def structure_cells(
+    points: np.ndarray,
+    elevation: np.ndarray,
+    origin: tuple[float, float],
+    cell: float,
+    min_points: int = 3,
+) -> np.ndarray:
+    """
+    Cells holding at least `min_points` scan points more than 0.5 m
+    above the ground: walls, buildings, fences, hedges. Vehicles (warm
+    label colours) don't count: they move.
+    """
+
+    i = np.floor((points[:, 0] - origin[0]) / cell).astype(int)
+    j = np.floor((points[:, 1] - origin[1]) / cell).astype(int)
+    ny, nx = elevation.shape
+    inside = (i >= 0) & (j >= 0) & (i < nx) & (j < ny)
+
+    points, i, j = points[inside], i[inside], j[inside]
+
+    chromaticity = points[:, 3:6] / np.maximum(points[:, 3:6].sum(axis=1, keepdims=True), 1.0e-9)
+    vehicle = (chromaticity[:, 0] > 0.40) & (chromaticity[:, 2] < 0.25)
+    raised = points[:, 2] > elevation[j, i] + 0.5
+
+    counts = np.zeros(elevation.shape, dtype=int)
+    np.add.at(counts, (j[raised & ~vehicle], i[raised & ~vehicle]), 1)
+
+    return counts >= min_points
 
 
 def read_obj(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -143,6 +190,25 @@ def fill_gaps(
     return heights
 
 
+def connected_to_border(mask: np.ndarray) -> np.ndarray:
+    """Cells of `mask` reachable from the grid border through `mask` (4-neighbour)."""
+
+    reached = np.zeros_like(mask)
+    reached[0, :], reached[-1, :] = mask[0, :], mask[-1, :]
+    reached[:, 0], reached[:, -1] = mask[:, 0], mask[:, -1]
+
+    while True:
+        padded = np.pad(reached, 1)
+        grown = mask & (
+            reached
+            | padded[:-2, 1:-1] | padded[2:, 1:-1]
+            | padded[1:-1, :-2] | padded[1:-1, 2:]
+        )
+        if np.array_equal(grown, reached):
+            return reached
+        reached = grown
+
+
 def classify_surface(colours: np.ndarray) -> np.ndarray:
     """Nearest surface type by chromaticity for (..., 3) RGB colours."""
 
@@ -156,8 +222,14 @@ def classify_surface(colours: np.ndarray) -> np.ndarray:
     return np.array(names)[distance.argmin(axis=-1)]
 
 
-def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Elevation, obstacle mask, surface types and roofs for the LiDAR street scan."""
+def build(cell: float = CELL) -> dict[str, np.ndarray]:
+    """
+    Terrain layers for the LiDAR street scan: elevation, obstacles
+    (= roofs), surface types, roofs, outside (cells the scan never
+    covered and saw no structure in, which the model treats as sinks:
+    water flowing there leaves the street) and origin (x, y of the grid corner, metres,
+    in the scan's coordinates).
+    """
 
     ground, ground_faces = read_obj(LIDAR / "road-terrain.obj")
     buildings, building_faces = read_obj(LIDAR / "building-masses.obj")
@@ -185,43 +257,67 @@ def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         for channel in range(3)
     ], axis=-1)
 
-    no_ground = np.isnan(elevation)
-    footprints = np.isfinite(
+    roofs = np.isfinite(
         rasterize(buildings[:, :3], building_faces, origin, shape, cell)
     )
 
-    # Obstacle cells still need finite heights: the solver differences
-    # across them, so extend the surrounding ground smoothly.
+    # Unscanned areas enclosed by the street are occlusions (ground hidden
+    # under parked cars, etc.), not the edge of the survey: they become
+    # street, with heights and surface types from their surroundings.
+    unscanned = connected_to_border(np.isnan(elevation) & ~roofs)
+
+    # Unscanned cells get heights continuing the surrounding ground, so
+    # water leaves the street only where the surface slopes that way.
     elevation = fill_gaps(elevation)
 
-    obstacles = no_ground | footprints
+    # Where the scan saw a structure beyond the street edge, that edge is
+    # a wall; where it saw nothing (the street running out of range),
+    # water leaves the model.
+    walls = unscanned & structure_cells(
+        read_point_cloud(LIDAR / "registered-semantic-corridor.ply"),
+        elevation,
+        origin,
+        cell,
+    )
+    outside = unscanned & ~walls
+    colours = np.stack([fill_gaps(colours[..., channel]) for channel in range(3)], axis=-1)
 
     surface = np.full(shape, "", dtype="<U8")
-    surface[~no_ground] = classify_surface(colours[~no_ground])
+    surface[~outside] = classify_surface(colours[~outside])
 
-    return elevation, obstacles, surface, footprints
+    return {
+        "elevation": elevation,
+        "obstacles": roofs | walls,
+        "surface": surface,
+        "roofs": roofs,
+        "outside": outside,
+        "origin": np.array(origin),
+    }
 
 
 def main() -> None:
 
-    elevation, obstacles, surface, roofs = build()
+    layers = build()
+    elevation = layers.pop("elevation")
 
-    save_terrain(OUTPUT, elevation, CELL, CELL, obstacles=obstacles, surface=surface, roofs=roofs)
+    save_terrain(OUTPUT, elevation, CELL, CELL, **layers)
 
     ny, nx = elevation.shape
-    open_ground = ~obstacles
+    street = ~layers["obstacles"] & ~layers["outside"]
 
     print(f"Wrote {OUTPUT}")
     print(f"Grid:        {nx} × {ny} at {CELL} m")
-    print(f"Open ground: {open_ground.sum()} cells ({open_ground.mean():.0%})")
-    print(f"Roofs:       {roofs.sum()} cells ({roofs.mean():.0%}), drained to the ground")
+    print(f"Street:      {street.sum()} cells ({street.mean():.0%})")
+    print(f"Roofs:       {layers['roofs'].sum()} cells ({layers['roofs'].mean():.0%}), drained to the street")
+    print(f"Walls:       {(layers['obstacles'] & ~layers['roofs']).sum()} cells (structures the scan saw beyond the street)")
+    print(f"Outside:     {layers['outside'].sum()} cells ({layers['outside'].mean():.0%}), water leaves the model there")
     print(
-        f"Relief:      {np.ptp(elevation[open_ground]):.2f} m "
-        f"({elevation[open_ground].min():.2f} to {elevation[open_ground].max():.2f})"
+        f"Relief:      {np.ptp(elevation[street]):.2f} m "
+        f"({elevation[street].min():.2f} to {elevation[street].max():.2f})"
     )
 
     for name in SURFACE_COLOURS:
-        print(f"{name.capitalize() + ':':13}{np.mean(surface[open_ground] == name):.0%} of open ground")
+        print(f"{name.capitalize() + ':':13}{np.mean(layers['surface'][street] == name):.0%} of the street")
 
 
 if __name__ == "__main__":

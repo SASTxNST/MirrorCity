@@ -17,6 +17,12 @@ These tests verify:
 11. LiDAR rasterization reproduces a plane; the committed grid is current.
 12. Impervious cells (conductivity 0) soak nothing in.
 13. Roof rain drains to the ground instead of being lost.
+14. Sink cells (outside a survey) take water out of the model.
+15. Storm drains remove water up to their capacity.
+16. Benchmark: steady rain on a plane matches the analytic
+    Manning normal-depth profile.
+17. Benchmark: a lake at rest stays at rest.
+18. Benchmark: water in a closed tilted box settles flat.
 """
 
 from __future__ import annotations
@@ -598,14 +604,14 @@ def test_lidar_terrain() -> None:
 
     x, y = np.meshgrid(np.arange(4) + 0.5, np.arange(3) + 0.5)
 
-    elevation, obstacles, surface, roofs = build()
+    layers = build()
 
     with np.load(OUTPUT) as saved:
-        current = (
-            np.allclose(saved["elevation"], elevation, atol=1.0e-9)
-            and np.array_equal(saved["obstacles"], obstacles)
-            and np.array_equal(saved["surface"], surface)
-            and np.array_equal(saved["roofs"], roofs)
+        current = set(saved.files) == set(layers) | {"dx", "dy"} and all(
+            np.allclose(saved[name], layer, atol=1.0e-9)
+            if layer.dtype.kind == "f"
+            else np.array_equal(saved[name], layer)
+            for name, layer in layers.items()
         )
 
     print("LiDAR terrain test")
@@ -670,6 +676,149 @@ def test_roof_drainage() -> None:
     assert np.all(solver.depth[roof] == 0.0)
 
 
+def test_sink_cells() -> None:
+    """Water running into sink cells leaves; nothing is lost or made."""
+
+    elevation = np.tile(-0.05 * np.arange(20.0), (5, 1))
+    sink = np.zeros(elevation.shape, dtype=bool)
+    sink[:, -1] = True  # the low end
+
+    solver = FloodSolver(
+        elevation=elevation,
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(100.0),
+        infiltration=None,
+        sink_mask=sink,
+    )
+
+    solver.run(duration=600.0, output_interval=600.0)
+
+    rain = 100.0 / 1000.0 / 3600.0 * 600.0 * (~sink).sum()
+    stored = solver.total_water_volume()
+    outflow = solver.total_outflow_volume
+
+    print("Sink-cell test")
+    print("--------------")
+    print(f"Rain {rain:.4f} m³ = stored {stored:.4f} + outflow {outflow:.4f}")
+
+    assert outflow > 0.5 * rain
+    assert abs(stored + outflow - rain) / rain < 1e-8
+
+
+def test_drains() -> None:
+    """Drains sized for the rain keep a flat box dry."""
+
+    solver = FloodSolver(
+        elevation=np.zeros((10, 10)),
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(50.0),
+        infiltration=None,
+        drain_rate=50.0 / 1000.0 / 3600.0,
+    )
+
+    solver.run(duration=600.0, output_interval=600.0)
+
+    rain = 50.0 / 1000.0 / 3600.0 * 600.0 * 100
+
+    print("Drain test")
+    print("----------")
+    print(f"Rain {rain:.4f} m³, drained {solver.total_drained_volume:.4f} m³, left {solver.total_water_volume():.2e} m³")
+
+    assert solver.total_water_volume() < 1e-9
+    assert abs(solver.total_drained_volume - rain) / rain < 1e-8
+
+
+def test_steady_plane_matches_manning() -> None:
+    """
+    Benchmark: steady rain r on a long plane of slope S reaches the
+    kinematic steady state q(x) = r x, with Manning normal depth
+    h(x) = (n q / sqrt(S))^(3/5).
+    """
+
+    length, slope, roughness, rain = 100, 0.01, 0.03, 100.0
+    x = np.arange(length) + 0.5
+
+    solver = FloodSolver(
+        elevation=np.tile(-slope * x, (3, 1)),
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(rain),
+        manning_n=roughness,
+        infiltration=None,
+        boundary=BoundaryConditions(east="open"),
+    )
+
+    solver.run(duration=3600.0, output_interval=3600.0)
+
+    rate = rain / 1000.0 / 3600.0
+    analytic = (roughness * rate * x / np.sqrt(slope)) ** 0.6
+    error = np.abs(solver.depth[1] - analytic) / analytic
+
+    print("Steady-plane benchmark")
+    print("----------------------")
+    print(f"Depth at 50 m: {solver.depth[1, 50]:.5f} m (analytic {analytic[50]:.5f} m)")
+    print(f"Worst error from 10 m on: {error[10:].max():.1%}")
+
+    assert error[10:].max() < 0.05
+
+
+def test_lake_at_rest() -> None:
+    """Benchmark: still water over uneven ground must not move."""
+
+    x = np.arange(30.0)
+    elevation = np.tile(0.3 * np.sin(x / 4.0), (8, 1))
+    initial = np.maximum(0.5 - elevation, 0.0)
+
+    solver = FloodSolver(
+        elevation=elevation,
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(0.0),
+        infiltration=None,
+    )
+
+    solver.depth = initial.copy()
+    solver.run(duration=600.0, output_interval=600.0)
+
+    change = np.abs(solver.depth - initial).max()
+
+    print("Lake-at-rest benchmark")
+    print("----------------------")
+    print(f"Largest depth change: {change:.2e} m")
+
+    assert change < 1e-9
+
+
+def test_settles_flat() -> None:
+    """Benchmark: water in a closed tilted box ends with a flat surface."""
+
+    elevation = np.tile(0.01 * np.arange(40.0), (6, 1))
+
+    solver = FloodSolver(
+        elevation=elevation,
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(0.0),
+        infiltration=None,
+    )
+
+    solver.depth[:] = 0.3
+    volume = solver.total_water_volume()
+    # Friction makes the last millimetres slow: allow two hours.
+    solver.run(duration=7200.0, output_interval=7200.0)
+
+    surface = (elevation + solver.depth)[solver.depth > 0.01]
+
+    print("Settling benchmark")
+    print("------------------")
+    print(f"Water surface range: {np.ptp(surface) * 1000:.2f} mm")
+
+    assert np.ptp(surface) < 0.001
+    assert abs(solver.total_water_volume() - volume) / volume < 1e-8
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -686,6 +835,11 @@ def run_all_tests() -> None:
     test_lidar_terrain()
     test_impervious_cells()
     test_roof_drainage()
+    test_sink_cells()
+    test_drains()
+    test_steady_plane_matches_manning()
+    test_lake_at_rest()
+    test_settles_flat()
 
     print()
     print(

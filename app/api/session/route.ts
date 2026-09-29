@@ -67,11 +67,13 @@ export async function PUT(request: Request) {
     const payload = (await request.json()) as {
       districtName?: string;
       population?: number;
+      floodRainfall?: number;
+      floodStormMinutes?: number;
       activeScenario?: string;
       layers?: string;
     };
 
-    const numberError = invalidNumberField({ population: payload.population });
+    const numberError = invalidNumberField({ population: payload.population, floodRainfall: payload.floodRainfall, floodStormMinutes: payload.floodStormMinutes });
     if (numberError) return numberError;
     const stringError = blankStringField({
       districtName: payload.districtName,
@@ -98,6 +100,8 @@ export async function PUT(request: Request) {
 
     if (payload.districtName !== undefined) updates.districtName = payload.districtName;
     if (payload.population !== undefined) updates.population = payload.population;
+    if (payload.floodRainfall !== undefined) updates.floodRainfall = payload.floodRainfall;
+    if (payload.floodStormMinutes !== undefined) updates.floodStormMinutes = payload.floodStormMinutes;
     if (payload.activeScenario !== undefined) updates.activeScenario = payload.activeScenario;
     if (payload.layers !== undefined) updates.layers = payload.layers;
 
