@@ -13,8 +13,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "node scripts/db-migrate-local.mjs",
-    "flood:test": "python -m scripts.flood.validation",
-    "flood:run": "python -m scripts.flood.run_simulation"
+    "flood:test": "python3 -m scripts.flood.validation",
+    "flood:run": "python3 -m scripts.flood.run_simulation"
   },
   "dependencies": {
     "3d-tiles-renderer": "0.5.3",
