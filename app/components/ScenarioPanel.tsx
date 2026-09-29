@@ -35,7 +35,12 @@ export default function ScenarioPanel({ scenario, activeScenario, population, ra
       ) : <label className="reference-population"><span><small>POPULATION</small><strong>{population.toLocaleString()}</strong></span><input aria-label="Projected population" type="range" min="1500" max="2500" step="50" value={population} onChange={(event) => onPopulationChange(Number(event.target.value))} /><i><small>1,500</small><small>2,000</small><small>2,500</small></i></label>}
       <div className="reference-metrics">{metrics.map((metric) => <span key={metric.label}><small>{metric.label}</small><strong>{metric.value}</strong><em>{metric.trend}</em></span>)}</div>
       {activeScenario === "flood" && floodRun && <FloodMap run={floodRun} />}
-      <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>{activeScenario === "sewer" ? "94%" : activeScenario === "flood" ? "89%" : "91%"}</strong></span><i><b style={{ width: activeScenario === "flood" ? "89%" : activeScenario === "evacuation" ? "91%" : "94%" }} /></i><p><em /> Concept model · not calibrated</p></div>
+      {activeScenario === "flood" ? (
+        // The flood model has no confidence score: it passes benchmark tests (scripts/flood/validation.py) but hasn't been checked against real floods.
+        <div className="reference-confidence"><span><small>MODEL STATUS</small><strong>Benchmarked</strong></span><p><em /> Checked against exact solutions · not calibrated against real floods</p></div>
+      ) : (
+        <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>{activeScenario === "sewer" ? "94%" : "91%"}</strong></span><i><b style={{ width: activeScenario === "evacuation" ? "91%" : "94%" }} /></i><p><em /> Concept model · not calibrated</p></div>
+      )}
       <button className={`reference-side-run ${running ? "running" : ""}`} disabled={running} onClick={onRun}>{running ? (activeScenario === "flood" ? "Running flood model…" : "Computing network…") : complete ? "✓ Simulation complete" : "Run simulation"}<Icon name="play" /></button>
     </section>
   );
