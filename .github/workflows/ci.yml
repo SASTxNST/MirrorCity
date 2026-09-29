@@ -24,3 +24,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test # builds, then runs the smoke tests against the built worker
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14" # matches the Pyodide build /lab/flood runs on
+      - run: pip install numpy
+      - run: npm run flood:test
