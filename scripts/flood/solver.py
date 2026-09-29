@@ -598,74 +598,24 @@ class FloodSolver:
     def _calculate_cell_velocity(
         self,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Cell velocity from the face discharges: the average of a
+        cell's two face discharges divided by its depth. Cells under
+        1 mm of water report zero, as a film that thin has no
+        meaningful velocity.
+        """
 
-        eta = (
-            self.elevation
-            + self.depth
-        )
-
-        velocity_x = np.zeros_like(
-            self.depth
-        )
-
-        velocity_y = np.zeros_like(
-            self.depth
-        )
-
-        # X gradient.
-        gradient_x = np.zeros_like(
-            self.depth
-        )
-
-        gradient_x[:, 1:-1] = (
-            eta[:, 2:]
-            - eta[:, :-2]
-        ) / (
-            2.0 * self.dx
-        )
-
-        depth_safe = np.maximum(
+        depth = np.where(
+            self.depth > 1.0e-3,
             self.depth,
-            1.0e-8,
+            np.inf,
         )
 
-        velocity_x = (
-            depth_safe ** (2.0 / 3.0)
-            * np.sign(gradient_x)
-            * np.sqrt(
-                np.abs(gradient_x)
-            )
-            / self.manning_n
-        )
+        velocity_x = 0.5 * (self.qx[:, :-1] + self.qx[:, 1:]) / depth
+        velocity_y = 0.5 * (self.qy[:-1, :] + self.qy[1:, :]) / depth
 
-        # Y gradient.
-        gradient_y = np.zeros_like(
-            self.depth
-        )
-
-        gradient_y[1:-1, :] = (
-            eta[2:, :]
-            - eta[:-2, :]
-        ) / (
-            2.0 * self.dy
-        )
-
-        velocity_y = (
-            depth_safe ** (2.0 / 3.0)
-            * np.sign(gradient_y)
-            * np.sqrt(
-                np.abs(gradient_y)
-            )
-            / self.manning_n
-        )
-
-        velocity_x[
-            self.obstacle_mask
-        ] = 0.0
-
-        velocity_y[
-            self.obstacle_mask
-        ] = 0.0
+        velocity_x[self.obstacle_mask] = 0.0
+        velocity_y[self.obstacle_mask] = 0.0
 
         return velocity_x, velocity_y
 

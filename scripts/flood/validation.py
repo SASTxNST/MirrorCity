@@ -14,6 +14,7 @@ These tests verify:
 8. Water spreads into dry cells.
 9. Draining cells do not create water.
 10. Open boundaries drain, and outflow is accounted for.
+11. LiDAR rasterization reproduces a plane; the committed grid is current.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import numpy as np
 
 from .boundary import BoundaryConditions
 from .infiltration import GreenAmptInfiltration
+from .lidar_terrain import OUTPUT, build, rasterize
 from .obstacles import rectangular_obstacle
 from .rainfall import constant_rainfall
 from .solver import FloodSolver
@@ -574,6 +576,43 @@ def test_open_boundary_drains() -> None:
         assert abs(stored + outflow - rain) / rain < 1e-8
 
 
+def test_lidar_terrain() -> None:
+    """Rasterizing a tilted plane is exact; lidar-street.npz is up to date."""
+
+    corners = np.array([
+        [0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.4],
+        [4.0, 3.0, 1.0],
+        [0.0, 3.0, 0.6],
+    ])  # z = 0.1 x + 0.2 y
+
+    heights = rasterize(
+        corners,
+        np.array([[0, 1, 2], [0, 2, 3]]),
+        origin=(0.0, 0.0),
+        shape=(3, 4),
+        cell=1.0,
+    )
+
+    x, y = np.meshgrid(np.arange(4) + 0.5, np.arange(3) + 0.5)
+
+    elevation, obstacles = build()
+
+    with np.load(OUTPUT) as saved:
+        current = (
+            np.allclose(saved["elevation"], elevation, atol=1.0e-9)
+            and np.array_equal(saved["obstacles"], obstacles)
+        )
+
+    print("LiDAR terrain test")
+    print("------------------")
+    print(f"Plane error: {np.max(np.abs(heights - (0.1 * x + 0.2 * y))):.2e} m")
+    print(f"Committed grid current: {current}")
+
+    assert np.allclose(heights, 0.1 * x + 0.2 * y)
+    assert current, "Re-run: python3 -m scripts.flood.lidar_terrain"
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -587,6 +626,7 @@ def run_all_tests() -> None:
     test_water_enters_dry_cells()
     test_draining_conserves_water()
     test_open_boundary_drains()
+    test_lidar_terrain()
 
     print()
     print(

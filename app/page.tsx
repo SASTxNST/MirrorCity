@@ -316,7 +316,7 @@ export default function Home() {
       // Runs scripts/flood in the browser (Pyodide); the first run downloads Python (~8.5 MB).
       floodWorkerRef.current ??= new FloodWorker();
       const worker = floodWorkerRef.current;
-      const inputs = { rainfall, duration: 3600 };
+      const inputs = { rainfall, duration: 3600, terrain: "lidar-street" as const };
       setToast("Running flood model… first run downloads the model");
       const finish = (error: string | null) => {
         setRunning(false);
