@@ -11,6 +11,8 @@ These tests verify:
 5. Infiltration removes water.
 6. Obstacles block transport.
 7. Closed boundaries conserve water.
+8. Water spreads into dry cells.
+9. Draining cells do not create water.
 """
 
 from __future__ import annotations
@@ -460,6 +462,71 @@ def test_closed_boundary_conserves_water() -> None:
     )
 
 
+def test_water_enters_dry_cells() -> None:
+    """A wet area on flat ground should spread into dry cells."""
+
+    solver = FloodSolver(
+        elevation=np.zeros((10, 40)),
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(0.0),
+        infiltration=None,
+    )
+
+    solver.depth[:, :10] = 0.5
+
+    solver.run(
+        duration=60.0,
+        output_interval=60.0,
+    )
+
+    far_depth = float(
+        solver.depth[:, -5:].mean()
+    )
+
+    print("Dry-cell spreading test")
+    print("-----------------------")
+    print(f"Far side depth: {far_depth:.6f} m")
+
+    assert far_depth > 0.0
+
+
+def test_draining_conserves_water() -> None:
+    """Cells draining into a bowl must not gain water when clipped."""
+
+    x = np.linspace(-10.0, 10.0, 50)
+    xx, yy = np.meshgrid(x, x)
+
+    solver = FloodSolver(
+        elevation=0.02 * (xx**2 + yy**2),
+        dx=x[1] - x[0],
+        dy=x[1] - x[0],
+        rainfall=constant_rainfall(100.0),
+        infiltration=None,
+    )
+
+    solver.run(
+        duration=600.0,
+        output_interval=600.0,
+    )
+
+    expected = (
+        100.0 / 1000.0 / 3600.0 * 600.0
+        * solver.dx * solver.dy * solver.depth.size
+    )
+
+    actual = solver.total_water_volume()
+
+    relative_error = abs(actual - expected) / expected
+
+    print("Draining conservation test")
+    print("--------------------------")
+    print(f"Expected: {expected:.6f} m³")
+    print(f"Actual:   {actual:.6f} m³")
+
+    assert relative_error < 1e-8
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -470,6 +537,8 @@ def run_all_tests() -> None:
     test_infiltration_reduces_water()
     test_obstacle_blocks_water()
     test_closed_boundary_conserves_water()
+    test_water_enters_dry_cells()
+    test_draining_conserves_water()
 
     print()
     print(

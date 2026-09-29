@@ -359,15 +359,18 @@ class FloodSolver:
         eta_left = eta[:, :-1]
         eta_right = eta[:, 1:]
 
-        depth_left = self.depth[:, :-1]
-        depth_right = self.depth[:, 1:]
-
         blocked_left = self.obstacle_mask[:, :-1]
         blocked_right = self.obstacle_mask[:, 1:]
 
-        water_depth = np.minimum(
-            depth_left,
-            depth_right,
+        # Flow depth between cells: highest water surface above the
+        # highest bed, so water can spill into dry neighbours.
+        water_depth = np.maximum(
+            np.maximum(eta_left, eta_right)
+            - np.maximum(
+                self.elevation[:, :-1],
+                self.elevation[:, 1:],
+            ),
+            0.0,
         )
 
         gradient_x = (
@@ -413,15 +416,16 @@ class FloodSolver:
         eta_top = eta[:-1, :]
         eta_bottom = eta[1:, :]
 
-        depth_top = self.depth[:-1, :]
-        depth_bottom = self.depth[1:, :]
-
         blocked_top = self.obstacle_mask[:-1, :]
         blocked_bottom = self.obstacle_mask[1:, :]
 
-        water_depth = np.minimum(
-            depth_top,
-            depth_bottom,
+        water_depth = np.maximum(
+            np.maximum(eta_top, eta_bottom)
+            - np.maximum(
+                self.elevation[:-1, :],
+                self.elevation[1:, :],
+            ),
+            0.0,
         )
 
         gradient_y = (
@@ -474,6 +478,34 @@ class FloodSolver:
 
         if self.boundary.south == "closed":
             qy[-1, :] = 0.0
+
+        # ========================================================
+        # Outflow limiter
+        # ========================================================
+
+        # Scale each cell's outgoing discharges so it cannot lose more
+        # water than it holds; otherwise clipping negative depth to
+        # zero creates water.
+        outgoing = (
+            np.maximum(qx[:, 1:], 0.0)
+            + np.maximum(-qx[:, :-1], 0.0)
+        ) / self.dx + (
+            np.maximum(qy[1:, :], 0.0)
+            + np.maximum(-qy[:-1, :], 0.0)
+        ) / self.dy
+
+        scale = np.minimum(
+            1.0,
+            self.depth
+            / np.maximum(outgoing * dt, 1.0e-300),
+        )
+
+        # Each face is scaled by its donor (upstream) cell.
+        scale_x = np.pad(scale, ((0, 0), (1, 1)), constant_values=1.0)
+        qx *= np.where(qx > 0.0, scale_x[:, :-1], scale_x[:, 1:])
+
+        scale_y = np.pad(scale, ((1, 1), (0, 0)), constant_values=1.0)
+        qy *= np.where(qy > 0.0, scale_y[:-1, :], scale_y[1:, :])
 
         return qx, qy
 
