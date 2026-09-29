@@ -7,7 +7,7 @@
   },
   "scripts": {
     "predev": "node scripts/vendor-pyodide.mjs",
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
+    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --port 3000",
     "prebuild": "node scripts/vendor-pyodide.mjs",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
@@ -22,13 +22,13 @@
     "3d-tiles-renderer": "0.5.3",
     "drizzle-orm": "0.45.2",
     "pyodide": "314.0.7",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "three": "^0.185.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
-    "@cloudflare/workers-types": "^4.20260702.1",
+    "@cloudflare/vite-plugin": "1.49.0",
+    "@cloudflare/workers-types": "^5.20260929.1",
     "@eslint/js": "9.39.4",
     "@next/eslint-plugin-next": "16.2.6",
     "@tailwindcss/postcss": "4.2.1",
@@ -37,20 +37,26 @@
     "@types/react-dom": "19.2.3",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
+    "@vitejs/plugin-rsc": "0.5.35",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "19.3.0",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vinext": "1.0.0-beta.2",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vinext": "1.0.0",
+    "vite": "8.3.1",
+    "wrangler": "4.116.0"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "miniflare": {
+      "undici": "^7.29.1",
+      "sharp": "^0.35.4"
+    }
+  }
 }

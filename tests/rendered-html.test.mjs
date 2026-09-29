@@ -3,32 +3,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test, { after, before } from "node:test";
 
-// Plain Node ESM harness — works for routes that don't touch the D1-backed
-// `getDb()` (which imports the workerd-only "cloudflare:workers" module at
-// load time). Matches the pattern the starter template used.
-async function render(pathname = "/") {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request(`http://localhost${pathname}`, {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
-}
-
 test("GET / renders the MirrorCity workspace", async () => {
-  const response = await render("/");
+  // Runs in workerd like the API tests: since vinext 1.0 the server entry
+  // imports "cloudflare:workers" up front, which plain Node can't load.
+  const response = await mf.dispatchFetch("http://localhost/", { headers: { accept: "text/html" } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 

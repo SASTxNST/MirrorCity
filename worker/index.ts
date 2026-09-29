@@ -2,9 +2,11 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
+// Binding types written out here: vinext 1.0 no longer pulls in the global
+// Workers types (and loading them globally changes fetch typings app-wide).
 interface Env {
-  ASSETS: Fetcher;
-  DB: D1Database;
+  ASSETS: { fetch(request: Request): Promise<Response> };
+  DB: unknown; // D1; the app reads it via "cloudflare:workers" in db/index.ts
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
