@@ -64,11 +64,12 @@ def save_terrain(
     elevation: np.ndarray,
     dx: float,
     dy: float,
-    obstacles: np.ndarray | None = None,
+    **layers: np.ndarray | None,
 ) -> None:
     """
     Save a terrain grid to a compressed NumPy archive, optionally with
-    a boolean obstacle mask (True = water cannot enter).
+    per-cell layers such as `obstacles` (bool, True = water cannot
+    enter) or `surface` (str, e.g. "road" / "grass").
     """
 
     path = Path(path)
@@ -79,7 +80,7 @@ def save_terrain(
         elevation=elevation,
         dx=np.array(dx),
         dy=np.array(dy),
-        **({} if obstacles is None else {"obstacles": obstacles}),
+        **{name: layer for name, layer in layers.items() if layer is not None},
     )
 
 
@@ -103,12 +104,13 @@ def load_terrain(
     return elevation, dx, dy
 
 
-def load_obstacles(
+def load_layer(
     path: str | Path,
+    name: str,
 ) -> np.ndarray | None:
-    """Obstacle mask saved with the terrain, or None if it has none."""
+    """A per-cell layer saved with the terrain, or None if it has none."""
 
     with np.load(path) as data:
-        if "obstacles" not in data:
+        if name not in data:
             return None
-        return np.asarray(data["obstacles"], dtype=bool)
+        return np.asarray(data[name])

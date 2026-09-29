@@ -4,6 +4,9 @@ Build a flood-model terrain grid from the LiDAR street scan.
 Rasterizes public/models/lidar/road-terrain.obj (a Z-up ground mesh) onto
 a regular grid and marks the scanned building masses as obstacles. Cells
 the scan never covered are obstacles too: the model has no ground there.
+Each cell also gets a surface type (road / concrete / grass) recovered
+from the mesh's semantic colours, for per-surface roughness and
+infiltration.
 
     python3 -m scripts.flood.lidar_terrain
 
@@ -25,16 +28,28 @@ OUTPUT = Path("scripts/flood/data/lidar-street.npz")
 # ~8x faster than 1 m, which matters in the browser.
 CELL = 2.0
 
+# SemanticKITTI ground-class colours used by scripts/reconstruct_lidar_models.py,
+# grouped by how water behaves on them. Mesh colours were scaled by LiDAR
+# intensity and averaged, so cells are matched by chromaticity (colour / sum).
+SURFACE_COLOURS = {
+    "road": [(0.28, 0.34, 0.34), (0.40, 0.44, 0.42), (0.96, 0.86, 0.44)],  # road, parking, lane marking
+    "concrete": [(0.61, 0.57, 0.48), (0.47, 0.45, 0.40)],  # sidewalk, other ground
+    "grass": [(0.39, 0.48, 0.38)],  # terrain
+}
+
 
 def read_obj(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Vertices (n, 3) and triangle indices (m, 3) of a triangulated OBJ."""
+    """
+    Vertices (n, 3), or (n, 6) with x y z r g b when the OBJ has vertex
+    colours, and triangle indices (m, 3) of a triangulated OBJ.
+    """
 
     vertices = []
     faces = []
 
     for line in path.read_text().splitlines():
         if line.startswith("v "):
-            vertices.append([float(value) for value in line.split()[1:4]])
+            vertices.append([float(value) for value in line.split()[1:]])
         elif line.startswith("f "):
             faces.append([int(item.split("/")[0]) - 1 for item in line.split()[1:4]])
 
@@ -127,8 +142,21 @@ def fill_gaps(
     return heights
 
 
-def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray]:
-    """Elevation and obstacle mask for the LiDAR street scan."""
+def classify_surface(colours: np.ndarray) -> np.ndarray:
+    """Nearest surface type by chromaticity for (..., 3) RGB colours."""
+
+    names = [name for name, group in SURFACE_COLOURS.items() for _ in group]
+    references = np.array([colour for group in SURFACE_COLOURS.values() for colour in group])
+    references /= references.sum(axis=1, keepdims=True)
+
+    chromaticity = colours / colours.sum(axis=-1, keepdims=True)
+    distance = ((chromaticity[..., None, :] - references) ** 2).sum(axis=-1)
+
+    return np.array(names)[distance.argmin(axis=-1)]
+
+
+def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Elevation, obstacle mask and surface types for the LiDAR street scan."""
 
     ground, ground_faces = read_obj(LIDAR / "road-terrain.obj")
     buildings, building_faces = read_obj(LIDAR / "building-masses.obj")
@@ -141,28 +169,43 @@ def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray]:
 
     # Close pinholes between scan lines, but don't grow the corridor.
     elevation = fill_gaps(
-        rasterize(ground, ground_faces, origin, shape, cell),
+        rasterize(ground[:, :3], ground_faces, origin, shape, cell),
         min_neighbours=3,
         passes=2,
     )
 
+    # Rasterize each colour channel like a height, filled the same way.
+    colours = np.stack([
+        fill_gaps(
+            rasterize(ground[:, [0, 1, 3 + channel]], ground_faces, origin, shape, cell),
+            min_neighbours=3,
+            passes=2,
+        )
+        for channel in range(3)
+    ], axis=-1)
+
     no_ground = np.isnan(elevation)
     footprints = np.isfinite(
-        rasterize(buildings, building_faces, origin, shape, cell)
+        rasterize(buildings[:, :3], building_faces, origin, shape, cell)
     )
 
     # Obstacle cells still need finite heights: the solver differences
     # across them, so extend the surrounding ground smoothly.
     elevation = fill_gaps(elevation)
 
-    return elevation, no_ground | footprints
+    obstacles = no_ground | footprints
+
+    surface = np.full(shape, "", dtype="<U8")
+    surface[~no_ground] = classify_surface(colours[~no_ground])
+
+    return elevation, obstacles, surface
 
 
 def main() -> None:
 
-    elevation, obstacles = build()
+    elevation, obstacles, surface = build()
 
-    save_terrain(OUTPUT, elevation, CELL, CELL, obstacles=obstacles)
+    save_terrain(OUTPUT, elevation, CELL, CELL, obstacles=obstacles, surface=surface)
 
     ny, nx = elevation.shape
     open_ground = ~obstacles
@@ -174,6 +217,9 @@ def main() -> None:
         f"Relief:      {np.ptp(elevation[open_ground]):.2f} m "
         f"({elevation[open_ground].min():.2f} to {elevation[open_ground].max():.2f})"
     )
+
+    for name in SURFACE_COLOURS:
+        print(f"{name.capitalize() + ':':13}{np.mean(surface[open_ground] == name):.0%} of open ground")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,10 @@ from __future__ import annotations
 import numpy as np
 
 
+# Surface types (see lidar_terrain.SURFACE_COLOURS) that water cannot soak into.
+IMPERVIOUS_SURFACES = ("road", "concrete")
+
+
 class GreenAmptInfiltration:
     """
     Green-Ampt-style infiltration model.
@@ -43,14 +47,15 @@ class GreenAmptInfiltration:
     def __init__(
         self,
         shape: tuple[int, int],
-        hydraulic_conductivity: float = 1.0e-5,
+        hydraulic_conductivity: float | np.ndarray = 1.0e-5,
         suction_head: float = 0.10,
         moisture_deficit: float = 0.25,
     ) -> None:
 
-        if hydraulic_conductivity <= 0:
+        # Per-cell arrays are allowed; 0 marks an impervious cell.
+        if np.any(np.asarray(hydraulic_conductivity) < 0):
             raise ValueError(
-                "hydraulic_conductivity must be positive."
+                "hydraulic_conductivity cannot be negative."
             )
 
         if suction_head < 0:
@@ -65,8 +70,9 @@ class GreenAmptInfiltration:
 
         self.shape = shape
 
-        self.hydraulic_conductivity = float(
-            hydraulic_conductivity
+        self.hydraulic_conductivity = np.broadcast_to(
+            np.asarray(hydraulic_conductivity, dtype=np.float64),
+            shape,
         )
 
         self.suction_head = float(

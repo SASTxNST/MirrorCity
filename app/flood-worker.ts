@@ -39,8 +39,8 @@ worker.onmessage = async ({ data }) => {
     const pyodide = await booting;
     const booted = performance.now();
     pyodide.globals.set("cli_args", ["run_simulation", "--rainfall", String(Number(data.rainfall)), "--duration", String(Number(data.duration)), "--output", "/tmp/flood-out",
-      // The street is mostly paved: ~3.6 mm/h soak-in instead of the soil default, and water may leave where the street runs off the scan.
-      ...(data.terrain === "lidar-street" ? ["--terrain", "/app/lidar-street.npz", "--open-edges", "--infiltration-k", "1e-6"] : [])]);
+      // Roughness and infiltration come from the grid's surface types; water may leave where the street runs off the scan.
+      ...(data.terrain === "lidar-street" ? ["--terrain", "/app/lidar-street.npz", "--open-edges"] : [])]);
     pyodide.runPython("import sys\nsys.argv = [str(a) for a in cli_args]\nfrom flood.run_simulation import main\nmain()");
     const summary = JSON.parse(pyodide.FS.readFile("/tmp/flood-out/summary.json", { encoding: "utf8" }));
     worker.postMessage({ ok: true, summary, bootMs: booted - started, runMs: performance.now() - booted });
