@@ -89,6 +89,11 @@ class FloodSolver:
         obstacle_mask:
             Boolean grid where True means hydraulically blocked.
 
+        roof_mask:
+            Boolean grid of building roofs. Roofs are obstacles, but
+            their rain drains (like a downspout) to the nearest open
+            cell instead of being lost.
+
         boundary:
             Open/closed boundary conditions.
     """
@@ -103,6 +108,7 @@ class FloodSolver:
         infiltration: GreenAmptInfiltration | None = None,
         obstacle_mask: np.ndarray | None = None,
         boundary: BoundaryConditions | None = None,
+        roof_mask: np.ndarray | None = None,
     ) -> None:
 
         elevation = np.asarray(
@@ -191,6 +197,28 @@ class FloodSolver:
         self.obstacle_mask = obstacle_mask
 
         # --------------------------------------------------------
+        # Roof drainage
+        # --------------------------------------------------------
+
+        roof_mask = (
+            np.zeros(elevation.shape, dtype=bool)
+            if roof_mask is None
+            else np.asarray(roof_mask, dtype=bool)
+        )
+
+        if roof_mask.shape != elevation.shape:
+            raise ValueError(
+                "roof_mask must match elevation shape."
+            )
+
+        # Roofs are always obstacles.
+        self.obstacle_mask = self.obstacle_mask | roof_mask
+
+        self.roof_cells, self.roof_outlets = self._roof_outlets(
+            roof_mask
+        )
+
+        # --------------------------------------------------------
         # Boundary conditions
         # --------------------------------------------------------
 
@@ -268,11 +296,51 @@ class FloodSolver:
 
         self.depth += rainfall_depth
 
+        # Roof rain runs off to the ground; the roof cell itself is
+        # emptied with the other obstacles.
+        np.add.at(
+            self.depth,
+            self.roof_outlets,
+            rainfall_depth,
+        )
+
         self.total_rainfall_depth += (
             rainfall_depth
         )
 
         return rainfall_depth
+
+    def _roof_outlets(
+        self,
+        roof_mask: np.ndarray,
+    ) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray]]:
+        """
+        Roof cells that can drain, and the open cell each drains to:
+        the nearest by 4-neighbour steps (breadth-first search from
+        all open cells).
+        """
+
+        ny, nx = roof_mask.shape
+        outlet = np.full((ny, nx, 2), -1)
+
+        frontier = list(zip(*np.nonzero(~self.obstacle_mask)))
+        for j, i in frontier:
+            outlet[j, i] = (j, i)
+
+        while frontier:
+            reached = []
+            for j, i in frontier:
+                for nj, ni in ((j - 1, i), (j + 1, i), (j, i - 1), (j, i + 1)):
+                    if 0 <= nj < ny and 0 <= ni < nx and outlet[nj, ni, 0] < 0:
+                        outlet[nj, ni] = outlet[j, i]
+                        reached.append((nj, ni))
+            frontier = reached
+
+        # Roofs with no route to open ground (e.g. an all-obstacle grid)
+        # keep losing their rain.
+        drains = roof_mask & (outlet[:, :, 0] >= 0)
+
+        return drains, (outlet[drains][:, 0], outlet[drains][:, 1])
 
     # ============================================================
     # Infiltration

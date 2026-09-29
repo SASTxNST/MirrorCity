@@ -16,6 +16,7 @@ These tests verify:
 10. Open boundaries drain, and outflow is accounted for.
 11. LiDAR rasterization reproduces a plane; the committed grid is current.
 12. Impervious cells (conductivity 0) soak nothing in.
+13. Roof rain drains to the ground instead of being lost.
 """
 
 from __future__ import annotations
@@ -597,13 +598,14 @@ def test_lidar_terrain() -> None:
 
     x, y = np.meshgrid(np.arange(4) + 0.5, np.arange(3) + 0.5)
 
-    elevation, obstacles, surface = build()
+    elevation, obstacles, surface, roofs = build()
 
     with np.load(OUTPUT) as saved:
         current = (
             np.allclose(saved["elevation"], elevation, atol=1.0e-9)
             and np.array_equal(saved["obstacles"], obstacles)
             and np.array_equal(saved["surface"], surface)
+            and np.array_equal(saved["roofs"], roofs)
         )
 
     print("LiDAR terrain test")
@@ -636,6 +638,38 @@ def test_impervious_cells() -> None:
     assert soaked[0, 1] > 0.0
 
 
+def test_roof_drainage() -> None:
+    """In a closed box, rain on a roof must end up on the ground."""
+
+    roof = np.zeros((10, 10), dtype=bool)
+    roof[4:6, 4:6] = True
+
+    solver = FloodSolver(
+        elevation=np.zeros((10, 10)),
+        dx=1.0,
+        dy=1.0,
+        rainfall=constant_rainfall(50.0),
+        infiltration=None,
+        roof_mask=roof,
+    )
+
+    solver.run(
+        duration=300.0,
+        output_interval=300.0,
+    )
+
+    expected = 50.0 / 1000.0 / 3600.0 * 300.0 * roof.size
+    actual = solver.total_water_volume()
+
+    print("Roof-drainage test")
+    print("------------------")
+    print(f"Expected: {expected:.6f} m³ (rain on roof and ground)")
+    print(f"Actual:   {actual:.6f} m³")
+
+    assert abs(actual - expected) / expected < 1e-8
+    assert np.all(solver.depth[roof] == 0.0)
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -651,6 +685,7 @@ def run_all_tests() -> None:
     test_open_boundary_drains()
     test_lidar_terrain()
     test_impervious_cells()
+    test_roof_drainage()
 
     print()
     print(
