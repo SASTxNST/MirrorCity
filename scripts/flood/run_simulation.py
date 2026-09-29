@@ -18,6 +18,7 @@ from .roughness import uniform_roughness
 from .solver import FloodSolver
 from .terrain import (
     create_test_terrain,
+    load_obstacles,
     load_terrain,
     save_terrain,
 )
@@ -78,6 +79,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Allow water to leave "
             "through the south boundary."
+        ),
+    )
+
+    parser.add_argument(
+        "--open-edges",
+        action="store_true",
+        help=(
+            "Allow water to leave "
+            "through all four boundaries."
         ),
     )
 
@@ -197,6 +207,14 @@ def main() -> None:
         dtype=bool,
     )
 
+    if args.terrain:
+        saved_obstacles = load_obstacles(
+            args.terrain
+        )
+
+        if saved_obstacles is not None:
+            obstacle_mask = saved_obstacles
+
     if args.building:
 
         ny, nx = shape
@@ -221,7 +239,7 @@ def main() -> None:
             ny // 2 + 4,
         )
 
-        obstacle_mask = (
+        obstacle_mask = obstacle_mask | (
             rectangular_obstacle(
                 shape,
                 x0,
@@ -235,7 +253,7 @@ def main() -> None:
     # Boundary conditions
     # ============================================================
 
-    boundary = BoundaryConditions(
+    boundary = BoundaryConditions.open_all() if args.open_edges else BoundaryConditions(
         west="closed",
         east="closed",
         north="closed",

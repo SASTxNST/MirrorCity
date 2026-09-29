@@ -64,8 +64,12 @@ def save_terrain(
     elevation: np.ndarray,
     dx: float,
     dy: float,
+    obstacles: np.ndarray | None = None,
 ) -> None:
-    """Save a terrain grid to a compressed NumPy archive."""
+    """
+    Save a terrain grid to a compressed NumPy archive, optionally with
+    a boolean obstacle mask (True = water cannot enter).
+    """
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,6 +79,7 @@ def save_terrain(
         elevation=elevation,
         dx=np.array(dx),
         dy=np.array(dy),
+        **({} if obstacles is None else {"obstacles": obstacles}),
     )
 
 
@@ -96,3 +101,14 @@ def load_terrain(
         raise ValueError("Grid spacing dx and dy must be positive.")
 
     return elevation, dx, dy
+
+
+def load_obstacles(
+    path: str | Path,
+) -> np.ndarray | None:
+    """Obstacle mask saved with the terrain, or None if it has none."""
+
+    with np.load(path) as data:
+        if "obstacles" not in data:
+            return None
+        return np.asarray(data["obstacles"], dtype=bool)

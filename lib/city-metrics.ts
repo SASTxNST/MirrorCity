@@ -18,7 +18,7 @@ export function floodMetrics(results: FloodResults | null) {
   }
   const soaked = Math.round((results.infiltration_depth_mean_m / results.rainfall_depth_m) * 100);
   return [
-    { value: `${results.max_depth_m.toFixed(2)} m`, label: "Peak depth", trend: "Test terrain" },
+    { value: `${results.max_depth_m.toFixed(2)} m`, label: "Peak depth", trend: "LiDAR street scan" },
     { value: `${results.max_velocity_m_per_s.toFixed(2)} m/s`, label: "Peak velocity", trend: "Surface flow" },
     { value: `${Math.round(results.water_volume_m3)} m³`, label: "Standing water", trend: `${soaked}% soaked in` },
   ];
