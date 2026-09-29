@@ -312,6 +312,20 @@ npm run build
 npm run lint
 ```
 
+## Flood model
+
+The Monsoon flood scenario runs `scripts/flood` (a 2-D local-inertial flood model in Python/NumPy) in the browser via Pyodide, on a 2 m grid built from the LiDAR street scan in `public/models/lidar`.
+
+```bash
+npm run flood:test                              # 18 validation tests and benchmarks (also run in CI)
+npm run flood:run -- --terrain scripts/flood/data/lidar-street.npz --open-edges --drain-capacity 20
+python3 -m scripts.flood.lidar_terrain          # rebuild lidar-street.npz after changing the scan or builder
+```
+
+The grid holds per-cell layers: elevation, surface type (road / concrete / grass, from the scan's labels), roofs (their rain drains to the street), walls (structures the scan saw beyond the street) and outside (unscanned areas where water leaves the model). Pyodide is served from `public/pyodide/`, which `npm run dev` / `npm run build` fill from the `pyodide` npm package (the NumPy wheel is downloaded once and checksum-verified).
+
+Values (roughness, soil infiltration, 20 mm/h street-drain capacity) are textbook assumptions, not calibrated against observed floods.
+
 ## Rebuilding the IITH terrain models
 
 The generated models are already included under `public/models/iith`. To reproduce them from an extracted labelled dataset:

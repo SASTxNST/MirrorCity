@@ -100,6 +100,22 @@ test("GET /api/session returns the active session", async () => {
   assert.equal(body.session.districtName, "Varuna River Ward");
 });
 
+test("a session remembers the last flood storm", async () => {
+  const first = await mf.dispatchFetch("http://localhost/api/session");
+  const cookie = first.headers.get("set-cookie").split(";")[0];
+  assert.equal((await first.json()).session.floodRainfall, 100);
+
+  const put = await mf.dispatchFetch("http://localhost/api/session", { method: "PUT", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ floodRainfall: 140, floodStormMinutes: 90 }) });
+  assert.equal(put.status, 200);
+
+  const { session } = await (await mf.dispatchFetch("http://localhost/api/session", { headers: { cookie } })).json();
+  assert.equal(session.floodRainfall, 140);
+  assert.equal(session.floodStormMinutes, 90);
+
+  const bad = await mf.dispatchFetch("http://localhost/api/session", { method: "PUT", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ floodRainfall: "lots" }) });
+  assert.equal(bad.status, 400);
+});
+
 test("a first visit never receives another visitor's session", async () => {
   const first = await mf.dispatchFetch("http://localhost/api/session");
   const firstCookie = first.headers.get("set-cookie").split(";")[0];

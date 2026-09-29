@@ -5,8 +5,10 @@
 // LiDAR street scan grid, built by `python3 -m scripts.flood.lidar_terrain`.
 import lidarStreetUrl from "../scripts/flood/data/lidar-street.npz?url";
 
-// ponytail: loaded from the jsDelivr CDN; self-host the Pyodide files before relying on this in production.
-const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
+// Pyodide is served from our own origin (scripts/vendor-pyodide.mjs copies it
+// into public/pyodide/ before dev and build). If that copy is missing, e.g. a
+// build that skipped the prebuild step, fall back to the same release on jsDelivr.
+const PYODIDE_URLS = ["/pyodide/", "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/"];
 
 const sources = import.meta.glob("../scripts/flood/*.py", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
@@ -17,13 +19,20 @@ type Pyodide = {
   FS: { mkdirTree(path: string): void; writeFile(path: string, data: string | Uint8Array): void; readFile(path: string, options: { encoding: "utf8" }): string };
 };
 
-const worker = self as unknown as { postMessage(message: unknown): void; onmessage: ((event: MessageEvent<{ rainfall: number; duration: number; terrain?: "lidar-street" }>) => void) | null };
+const worker = self as unknown as { postMessage(message: unknown): void; onmessage: ((event: MessageEvent<{ rainfall: number; duration: number; terrain?: "lidar-street"; drainCapacity?: number }>) => void) | null };
 
 let booting: Promise<Pyodide> | null = null;
 
 async function boot(): Promise<Pyodide> {
-  const { loadPyodide } = await import(/* @vite-ignore */ `${PYODIDE_URL}pyodide.mjs`);
-  const pyodide: Pyodide = await loadPyodide({ indexURL: PYODIDE_URL });
+  let loaded: { loadPyodide(options: { indexURL: string }): Promise<Pyodide> } | undefined;
+  let indexURL = "";
+  for (const url of PYODIDE_URLS) {
+    indexURL = url;
+    loaded = await import(/* @vite-ignore */ `${url}pyodide.mjs`).catch(() => undefined);
+    if (loaded) break;
+  }
+  if (!loaded) throw new Error("Couldn't load Python (Pyodide)");
+  const pyodide = await loaded.loadPyodide({ indexURL });
   await pyodide.loadPackage("numpy");
   pyodide.FS.mkdirTree("/app/flood");
   for (const [path, code] of Object.entries(sources)) pyodide.FS.writeFile(`/app/flood/${path.split("/").pop()}`, code);
@@ -38,8 +47,8 @@ worker.onmessage = async ({ data }) => {
     booting ??= boot().catch((error) => { booting = null; throw error; });
     const pyodide = await booting;
     const booted = performance.now();
-    pyodide.globals.set("cli_args", ["run_simulation", "--rainfall", String(Number(data.rainfall)), "--duration", String(Number(data.duration)), "--output", "/tmp/flood-out",
-      // Roughness and infiltration come from the grid's surface types; water may leave where the street runs off the scan.
+    pyodide.globals.set("cli_args", ["run_simulation", "--rainfall", String(Number(data.rainfall)), "--duration", String(Number(data.duration)), "--output", "/tmp/flood-out", "--drain-capacity", String(Number(data.drainCapacity ?? 0)),
+      // Roughness, infiltration, roofs, walls and survey edges come from the grid's layers; water may also leave at the grid border.
       ...(data.terrain === "lidar-street" ? ["--terrain", "/app/lidar-street.npz", "--open-edges"] : [])]);
     pyodide.runPython("import sys\nsys.argv = [str(a) for a in cli_args]\nfrom flood.run_simulation import main\nmain()");
     const summary = JSON.parse(pyodide.FS.readFile("/tmp/flood-out/summary.json", { encoding: "utf8" }));

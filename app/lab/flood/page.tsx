@@ -13,7 +13,8 @@ type Result =
   | { ok: false; error: string };
 
 const LABELS: Record<string, string> = {
-  max_depth_m: "Peak depth (m)",
+  peak_depth_m: "Peak depth (m)",
+  max_depth_m: "Depth at end (m)",
   max_velocity_m_per_s: "Peak velocity (m/s)",
   water_volume_m3: "Water volume (m³)",
   rainfall_depth_m: "Rainfall depth (m)",

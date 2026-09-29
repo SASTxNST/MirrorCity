@@ -94,6 +94,16 @@ class FloodSolver:
             their rain drains (like a downspout) to the nearest open
             cell instead of being lost.
 
+        sink_mask:
+            Boolean grid of cells outside the modelled area (e.g.
+            beyond a survey's edge). Water flowing into them leaves
+            the model and counts as outflow; rain on them is ignored.
+
+        drain_rate:
+            Storm-drain capacity per cell [m/s] (scalar or grid).
+            Up to this rate of surface water is removed and counted
+            as drained.
+
         boundary:
             Open/closed boundary conditions.
     """
@@ -109,6 +119,8 @@ class FloodSolver:
         obstacle_mask: np.ndarray | None = None,
         boundary: BoundaryConditions | None = None,
         roof_mask: np.ndarray | None = None,
+        sink_mask: np.ndarray | None = None,
+        drain_rate: float | np.ndarray = 0.0,
     ) -> None:
 
         elevation = np.asarray(
@@ -214,6 +226,31 @@ class FloodSolver:
         # Roofs are always obstacles.
         self.obstacle_mask = self.obstacle_mask | roof_mask
 
+        # --------------------------------------------------------
+        # Sinks and drains
+        # --------------------------------------------------------
+
+        self.sink_mask = (
+            np.zeros(elevation.shape, dtype=bool)
+            if sink_mask is None
+            else np.asarray(sink_mask, dtype=bool)
+        ) & ~self.obstacle_mask
+
+        if self.sink_mask.shape != elevation.shape:
+            raise ValueError(
+                "sink_mask must match elevation shape."
+            )
+
+        self.drain_rate = np.broadcast_to(
+            np.asarray(drain_rate, dtype=np.float64),
+            elevation.shape,
+        )
+
+        if np.any(self.drain_rate < 0):
+            raise ValueError(
+                "drain_rate cannot be negative."
+            )
+
         self.roof_cells, self.roof_outlets = self._roof_outlets(
             roof_mask
         )
@@ -260,6 +297,13 @@ class FloodSolver:
         self.total_rainfall_depth = 0.0
         self.total_infiltration_depth = 0.0
         self.total_outflow_volume = 0.0
+        self.total_drained_volume = 0.0
+
+        # Per-cell peaks over the run, and when the deepest water
+        # anywhere occurred.
+        self.peak_depth = np.zeros_like(elevation)
+        self.peak_hazard = np.zeros_like(elevation)
+        self.peak_time = 0.0
 
     # ============================================================
     # Rainfall
@@ -323,7 +367,7 @@ class FloodSolver:
         ny, nx = roof_mask.shape
         outlet = np.full((ny, nx, 2), -1)
 
-        frontier = list(zip(*np.nonzero(~self.obstacle_mask)))
+        frontier = list(zip(*np.nonzero(~self.obstacle_mask & ~self.sink_mask)))
         for j, i in frontier:
             outlet[j, i] = (j, i)
 
@@ -755,14 +799,25 @@ class FloodSolver:
         # --------------------------------------------------------
 
         self.depth[
-            self.obstacle_mask
+            self.obstacle_mask | self.sink_mask
         ] = 0.0
 
         # --------------------------------------------------------
-        # Infiltration
+        # Infiltration and storm drains
         # --------------------------------------------------------
 
         self.apply_infiltration(dt)
+
+        drained = np.minimum(
+            self.depth,
+            self.drain_rate * dt,
+        )
+
+        self.depth -= drained
+
+        self.total_drained_volume += float(
+            drained.sum() * self.dx * self.dy
+        )
 
         # --------------------------------------------------------
         # Transport
@@ -795,6 +850,15 @@ class FloodSolver:
 
         new_depth[
             self.obstacle_mask
+        ] = 0.0
+
+        # Water that reached a sink has left the modelled area.
+        self.total_outflow_volume += float(
+            new_depth[self.sink_mask].sum() * self.dx * self.dy
+        )
+
+        new_depth[
+            self.sink_mask
         ] = 0.0
 
         # --------------------------------------------------------
@@ -865,6 +929,12 @@ class FloodSolver:
             self.velocity_x,
             self.velocity_y,
         ) = self._calculate_cell_velocity()
+
+        if self.depth.max() > self.peak_depth.max():
+            self.peak_time = self.time
+
+        np.maximum(self.peak_depth, self.depth, out=self.peak_depth)
+        np.maximum(self.peak_hazard, self.hazard_index(), out=self.peak_hazard)
 
         return FloodState(
             time=self.time,

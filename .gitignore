@@ -40,6 +40,9 @@ yarn-error.log*
 /outputs/
 /work/
 
+# Pyodide runtime copied by scripts/vendor-pyodide.mjs
+/public/pyodide/
+
 # Python reconstruction caches
 __pycache__/
 *.py[cod]
