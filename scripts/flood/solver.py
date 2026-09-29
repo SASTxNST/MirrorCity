@@ -479,6 +479,33 @@ class FloodSolver:
         if self.boundary.south == "closed":
             qy[-1, :] = 0.0
 
+        # Open edges drain freely: the water-surface slope is carried
+        # on past the edge cell and drives the same inertial update.
+        # Discharges are signed +x/+y, so west/north outflow is negative.
+        if self.boundary.west == "open":
+            qx[:, 0] = -self._open_boundary_discharge(
+                -self.qx[:, 0], eta[:, 0], eta[:, 1], self.dx, dt,
+                self.depth[:, 0], self.manning_n[:, 0], self.obstacle_mask[:, 0],
+            )
+
+        if self.boundary.east == "open":
+            qx[:, -1] = self._open_boundary_discharge(
+                self.qx[:, -1], eta[:, -1], eta[:, -2], self.dx, dt,
+                self.depth[:, -1], self.manning_n[:, -1], self.obstacle_mask[:, -1],
+            )
+
+        if self.boundary.north == "open":
+            qy[0, :] = -self._open_boundary_discharge(
+                -self.qy[0, :], eta[0, :], eta[1, :], self.dy, dt,
+                self.depth[0, :], self.manning_n[0, :], self.obstacle_mask[0, :],
+            )
+
+        if self.boundary.south == "open":
+            qy[-1, :] = self._open_boundary_discharge(
+                self.qy[-1, :], eta[-1, :], eta[-2, :], self.dy, dt,
+                self.depth[-1, :], self.manning_n[-1, :], self.obstacle_mask[-1, :],
+            )
+
         # ========================================================
         # Outflow limiter
         # ========================================================
@@ -508,6 +535,36 @@ class FloodSolver:
         qy *= np.where(qy > 0.0, scale_y[:-1, :], scale_y[1:, :])
 
         return qx, qy
+
+    @staticmethod
+    def _open_boundary_discharge(
+        previous: np.ndarray,
+        eta_edge: np.ndarray,
+        eta_inner: np.ndarray,
+        spacing: float,
+        dt: float,
+        depth: np.ndarray,
+        roughness: np.ndarray,
+        blocked: np.ndarray,
+    ) -> np.ndarray:
+        """Outward discharge (>= 0) through one open edge."""
+
+        # Water-surface gradient in the outward direction.
+        gradient = (eta_edge - eta_inner) / spacing
+
+        discharge = (
+            previous
+            - 9.81 * depth * dt * gradient
+        ) / (
+            1.0
+            + 9.81 * dt * roughness**2
+            * np.abs(previous)
+            / np.maximum(depth, 1.0e-8) ** (7.0 / 3.0)
+        )
+
+        discharge[(depth <= 1.0e-8) | blocked] = 0.0
+
+        return np.maximum(discharge, 0.0)
 
     # ============================================================
     # Divergence
@@ -731,7 +788,7 @@ class FloodSolver:
             outflow += float(
                 np.sum(
                     np.maximum(
-                        qx[:, 0],
+                        -qx[:, 0],
                         0.0,
                     )
                 )
@@ -743,7 +800,7 @@ class FloodSolver:
             outflow += float(
                 np.sum(
                     np.maximum(
-                        -qx[:, -1],
+                        qx[:, -1],
                         0.0,
                     )
                 )
@@ -755,7 +812,7 @@ class FloodSolver:
             outflow += float(
                 np.sum(
                     np.maximum(
-                        qy[0, :],
+                        -qy[0, :],
                         0.0,
                     )
                 )
@@ -767,7 +824,7 @@ class FloodSolver:
             outflow += float(
                 np.sum(
                     np.maximum(
-                        -qy[-1, :],
+                        qy[-1, :],
                         0.0,
                     )
                 )

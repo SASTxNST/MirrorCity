@@ -13,6 +13,7 @@ These tests verify:
 7. Closed boundaries conserve water.
 8. Water spreads into dry cells.
 9. Draining cells do not create water.
+10. Open boundaries drain, and outflow is accounted for.
 """
 
 from __future__ import annotations
@@ -527,6 +528,52 @@ def test_draining_conserves_water() -> None:
     assert relative_error < 1e-8
 
 
+def test_open_boundary_drains() -> None:
+    """Rain on a slope should leave through the open edge it runs to."""
+
+    slope = np.tile(0.05 * np.arange(20.0), (20, 1))
+
+    # Ground falls towards the named side.
+    sides = {
+        "west": slope,
+        "east": slope[:, ::-1],
+        "north": slope.T,
+        "south": slope.T[::-1, :],
+    }
+
+    print("Open-boundary test")
+    print("------------------")
+
+    for side, elevation in sides.items():
+
+        solver = FloodSolver(
+            elevation=elevation,
+            dx=1.0,
+            dy=1.0,
+            rainfall=constant_rainfall(100.0),
+            infiltration=None,
+            boundary=BoundaryConditions(**{side: "open"}),
+        )
+
+        solver.run(
+            duration=600.0,
+            output_interval=600.0,
+        )
+
+        rain = 100.0 / 1000.0 / 3600.0 * 600.0 * 20 * 20
+
+        stored = solver.total_water_volume()
+        outflow = solver.total_outflow_volume
+
+        print(
+            f"{side:5}: rain {rain:.4f} m³ = "
+            f"stored {stored:.4f} + outflow {outflow:.4f}"
+        )
+
+        assert outflow > 0.1 * rain
+        assert abs(stored + outflow - rain) / rain < 1e-8
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -539,6 +586,7 @@ def run_all_tests() -> None:
     test_closed_boundary_conserves_water()
     test_water_enters_dry_cells()
     test_draining_conserves_water()
+    test_open_boundary_drains()
 
     print()
     print(
