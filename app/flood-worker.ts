@@ -5,7 +5,7 @@
 // ponytail: loaded from the jsDelivr CDN; self-host the Pyodide files before relying on this in production.
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 
-const sources = import.meta.glob("../../../scripts/flood/*.py", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const sources = import.meta.glob("../scripts/flood/*.py", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 type Pyodide = {
   loadPackage(name: string): Promise<unknown>;
