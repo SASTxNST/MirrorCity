@@ -760,7 +760,7 @@ export default function Home() {
                 </div>
 
                 <footer className="scenario-switcher">
-                  {(Object.keys(scenarios) as ScenarioKey[]).map((key) => <button key={key} className={activeScenario === key ? "active" : ""} onClick={() => { setActiveScenario(key); setComplete(false); }}><span>{key === "sewer" ? "01" : key === "flood" ? "02" : "03"}</span><i style={{ background: scenarios[key].accent }} /><strong>{scenarios[key].label}</strong><small>{key === "sewer" ? "Network pressure" : key === "flood" ? "100-year rainfall" : "Clearance routing"}</small></button>)}
+                  {(Object.keys(scenarios) as ScenarioKey[]).map((key) => <button key={key} className={activeScenario === key ? "active" : ""} onClick={() => { setActiveScenario(key); setComplete(false); }}><span>{key === "sewer" ? "01" : key === "flood" ? "02" : "03"}</span><i style={{ background: scenarios[key].accent }} /><strong>{scenarios[key].label}</strong><small>{key === "sewer" ? "Network pressure" : key === "flood" ? "Rainfall runoff" : "Clearance routing"}</small></button>)}
                 </footer>
               </section>
 
@@ -790,7 +790,8 @@ export default function Home() {
                 <div className="workspace-lower-grid">
                   <section className="workspace-panel simulation-history">
                     <header><div><span>RECENT RUNS</span><h3>Scenario history</h3></div><button onClick={() => setActiveView("twin")}>Open in twin →</button></header>
-                    {["Sewer · 2,000 residents", "Flood · 100-year rainfall", "Evacuation · evening peak"].map((label, index) => <div className="history-row" key={label}><i className={index === 0 ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? "Today, 14:32" : index === 1 ? "Yesterday, 18:04" : "24 Aug, 09:18"}</small></span><em>{index === 0 ? "94% confidence" : index === 1 ? "89% confidence" : "91% confidence"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
+                    {/* The flood row shows the saved storm and its real result; the other rows are still sample data. */}
+                    {["Sewer · 2,000 residents", `Flood · ${rainfall} mm/h, ${stormMinutes} min`, "Evacuation · evening peak"].map((label, index) => <div className="history-row" key={index}><i className={index === 0 || (index === 1 && floodResults) ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? "Today, 14:32" : index === 1 ? (floodResults ? `Last run · ${floodResults.peak_depth_m.toFixed(2)} m peak` : "Not run yet") : "24 Aug, 09:18"}</small></span><em>{index === 0 ? "94% confidence" : index === 1 ? "Not calibrated" : "91% confidence"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
                   </section>
                   <section className="workspace-panel assumptions-panel">
                     <header><div><span>MODEL INPUTS</span><h3>Live assumptions</h3></div></header>
