@@ -2,7 +2,7 @@
 
 /// <reference types="vite/client" />
 import { useEffect, useRef, useState } from "react";
-import FloodWorker from "./flood-worker.ts?worker";
+import FloodWorker from "../../flood-worker.ts?worker";
 
 // Lab page (not linked from the app): runs the real Python flood solver in
 // the browser via Pyodide, to evaluate feasibility before wiring it into the

@@ -1,11 +1,13 @@
 "use client";
 
+/// <reference types="vite/client" />
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
-import { evacuationMetrics, floodMetrics, sewerLoad } from "../lib/city-metrics";
+import { evacuationMetrics, floodMetrics, sewerLoad, type FloodResults } from "../lib/city-metrics";
+import FloodWorker from "./flood-worker.ts?worker";
 import { Icon, type IconName } from "./components/Icon";
 import AssetPanel, { type AssetDefinition } from "./components/AssetPanel";
 import LayerControls, { type LayerKey } from "./components/LayerControls";
@@ -137,6 +139,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [activeScenario, setActiveScenario] = useState<ScenarioKey>("sewer");
   const [population, setPopulation] = useState(2000);
+  const [rainfall, setRainfall] = useState(100);
+  const [flood, setFlood] = useState<{ rainfall: number; results: FloodResults } | null>(null);
+  const floodWorkerRef = useRef<Worker | null>(null);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false, sensors: true, construction: true });
   const [, setInspectorTab] = useState<"simulation" | "operations" | "object">("simulation");
   const [operationalMode, setOperationalMode] = useState(true);
@@ -204,15 +209,19 @@ export default function Home() {
     help: "Help center",
   };
 
+  const floodResults = flood?.rainfall === rainfall ? flood.results : null;
+
   const metricSet = useMemo(() => {
-    if (activeScenario === "flood") return floodMetrics(population);
+    if (activeScenario === "flood") return floodMetrics(floodResults);
     if (activeScenario === "evacuation") return evacuationMetrics(population);
     return [
       { value: `${sewer.load}%`, label: "Network load", trend: `+${Math.max(0, sewer.load - 68)}%` },
       { value: `${sewer.peakFlow} L/s`, label: "Peak outflow", trend: `+${Math.max(0, sewer.peakFlow - 35.2).toFixed(1)} L/s` },
       { value: String(sewer.riskNodes), label: "Risk nodes", trend: sewer.riskNodes >= 3 ? "Action needed" : sewer.riskNodes === 1 ? "Monitored" : "All clear" },
     ];
-  }, [activeScenario, population, sewer.load, sewer.peakFlow, sewer.riskNodes]);
+  }, [activeScenario, floodResults, population, sewer.load, sewer.peakFlow, sewer.riskNodes]);
+
+  useEffect(() => () => floodWorkerRef.current?.terminate(), []);
 
   // Load session + canvas data on mount
   useEffect(() => {
@@ -300,8 +309,28 @@ export default function Home() {
   }
 
   function runSimulation() {
+    if (running) return;
     setRunning(true);
     setComplete(false);
+    if (activeScenario === "flood") {
+      // Runs scripts/flood in the browser (Pyodide); the first run downloads Python (~8.5 MB).
+      floodWorkerRef.current ??= new FloodWorker();
+      const worker = floodWorkerRef.current;
+      const inputs = { rainfall, duration: 3600 };
+      setToast("Running flood model… first run downloads the model");
+      const finish = (error: string | null) => {
+        setRunning(false);
+        setComplete(!error);
+        setToast(error ? `Flood model failed · ${error}` : `${scenario.label} simulation complete`);
+      };
+      worker.onmessage = ({ data }: MessageEvent<{ ok: true; summary: { results: FloodResults } } | { ok: false; error: string }>) => {
+        if (data.ok) setFlood({ rainfall: inputs.rainfall, results: data.summary.results });
+        finish(data.ok ? null : data.error);
+      };
+      worker.onerror = () => finish("worker could not start");
+      worker.postMessage(inputs);
+      return;
+    }
     setToast("Running district network model…");
     window.setTimeout(() => {
       setRunning(false);
@@ -736,7 +765,7 @@ export default function Home() {
                     <span className="studio-index">0{index + 1}</span><i style={{ background: scenarios[key].accent }} />
                     <small>{scenarios[key].kicker}</small><h2>{scenarios[key].label}</h2>
                     <p>{key === "sewer" ? "Stress-test network capacity against projected occupancy." : key === "flood" ? "Map depth, exposure and drain-down under monsoon load." : "Model clearance time, route demand and emergency access."}</p>
-                    <strong>{key === "sewer" ? `${sewer.load}% load` : key === "flood" ? `${floodMetrics(population)[0].value} peak` : `${evacuationMetrics(population)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
+                    <strong>{key === "sewer" ? `${sewer.load}% load` : key === "flood" ? `${floodMetrics(floodResults)[0].value} peak` : `${evacuationMetrics(population)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
                   </button>)}
                 </div>
                 <div className="workspace-lower-grid">
@@ -845,7 +874,7 @@ export default function Home() {
             </section>
 
             <aside className="reference-aside">
-              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
+              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} rainfall={rainfall} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} onRainfallChange={(value) => { setRainfall(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
 
               <section className="reference-side-card object-card">
                 <header><div><span>SELECTED OBJECT</span><h3>{selected.name}</h3></div><button aria-label="Object options">•••</button></header>

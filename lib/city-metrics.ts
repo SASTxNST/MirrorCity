@@ -9,15 +9,18 @@ export function sewerLoad(population: number) {
   return { load, peakFlow: Math.round(peakLps * 10) / 10, riskNodes, status };
 }
 
-export function floodMetrics(population: number) {
-  const depth = (1.4 + (population - 1500) * 0.0006).toFixed(1);
-  const exposed = Math.round(10 + (population - 1500) * 0.006);
-  const drainTime = Math.max(28, Math.round(55 - (population - 1500) * 0.015));
-  const depthDelta = ((population - 1500) * 0.0006).toFixed(1);
+// Summary fields written by scripts/flood (run in the browser by app/flood-worker.ts).
+export type FloodResults = { max_depth_m: number; max_velocity_m_per_s: number; water_volume_m3: number; rainfall_depth_m: number; infiltration_depth_mean_m: number };
+
+export function floodMetrics(results: FloodResults | null) {
+  if (!results) {
+    return ["Peak depth", "Peak velocity", "Standing water"].map((label) => ({ value: "—", label, trend: "Run to compute" }));
+  }
+  const soaked = Math.round((results.infiltration_depth_mean_m / results.rainfall_depth_m) * 100);
   return [
-    { value: `${depth} m`, label: "Peak depth", trend: `+${depthDelta} m` },
-    { value: String(exposed), label: "Assets exposed", trend: `${Math.round(exposed * 0.2)} critical` },
-    { value: `${drainTime} min`, label: "Drain-down", trend: drainTime < 47 ? `−${47 - drainTime}%` : `+${drainTime - 47}%` },
+    { value: `${results.max_depth_m.toFixed(2)} m`, label: "Peak depth", trend: "Test terrain" },
+    { value: `${results.max_velocity_m_per_s.toFixed(2)} m/s`, label: "Peak velocity", trend: "Surface flow" },
+    { value: `${Math.round(results.water_volume_m3)} m³`, label: "Standing water", trend: `${soaked}% soaked in` },
   ];
 }
 
