@@ -10,13 +10,13 @@ export function sewerLoad(population: number) {
 }
 
 // Summary fields written by scripts/flood (run in the browser by app/flood-worker.ts).
-export type FloodResults = { max_depth_m: number; max_velocity_m_per_s: number; water_volume_m3: number; rainfall_depth_m: number; infiltration_depth_mean_m: number };
+export type FloodResults = { max_depth_m: number; max_velocity_m_per_s: number; water_volume_m3: number; rainfall_depth_m: number; infiltration_depth_mean_m: number; rain_soaked_in_fraction: number };
 
 export function floodMetrics(results: FloodResults | null) {
   if (!results) {
     return ["Peak depth", "Peak velocity", "Standing water"].map((label) => ({ value: "—", label, trend: "Run to compute" }));
   }
-  const soaked = Math.round((results.infiltration_depth_mean_m / results.rainfall_depth_m) * 100);
+  const soaked = Math.round(results.rain_soaked_in_fraction * 100);
   return [
     { value: `${results.max_depth_m.toFixed(2)} m`, label: "Peak depth", trend: "LiDAR street scan" },
     { value: `${results.max_velocity_m_per_s.toFixed(2)} m/s`, label: "Peak velocity", trend: "Surface flow" },

@@ -15,6 +15,7 @@ These tests verify:
 9. Draining cells do not create water.
 10. Open boundaries drain, and outflow is accounted for.
 11. LiDAR rasterization reproduces a plane; the committed grid is current.
+12. Impervious cells (conductivity 0) soak nothing in.
 """
 
 from __future__ import annotations
@@ -596,12 +597,13 @@ def test_lidar_terrain() -> None:
 
     x, y = np.meshgrid(np.arange(4) + 0.5, np.arange(3) + 0.5)
 
-    elevation, obstacles = build()
+    elevation, obstacles, surface = build()
 
     with np.load(OUTPUT) as saved:
         current = (
             np.allclose(saved["elevation"], elevation, atol=1.0e-9)
             and np.array_equal(saved["obstacles"], obstacles)
+            and np.array_equal(saved["surface"], surface)
         )
 
     print("LiDAR terrain test")
@@ -611,6 +613,27 @@ def test_lidar_terrain() -> None:
 
     assert np.allclose(heights, 0.1 * x + 0.2 * y)
     assert current, "Re-run: python3 -m scripts.flood.lidar_terrain"
+
+
+def test_impervious_cells() -> None:
+    """Per-cell conductivity: 0 soaks nothing in, soil still does."""
+
+    infiltration = GreenAmptInfiltration(
+        shape=(1, 2),
+        hydraulic_conductivity=np.array([[0.0, 1e-5]]),
+    )
+
+    soaked = infiltration.infiltrate(
+        available_water=np.full((1, 2), 0.01),
+        dt=60.0,
+    )
+
+    print("Impervious-cell test")
+    print("--------------------")
+    print(f"Paved: {soaked[0, 0]:.6f} m   Soil: {soaked[0, 1]:.6f} m")
+
+    assert soaked[0, 0] == 0.0
+    assert soaked[0, 1] > 0.0
 
 
 def run_all_tests() -> None:
@@ -627,6 +650,7 @@ def run_all_tests() -> None:
     test_draining_conserves_water()
     test_open_boundary_drains()
     test_lidar_terrain()
+    test_impervious_cells()
 
     print()
     print(

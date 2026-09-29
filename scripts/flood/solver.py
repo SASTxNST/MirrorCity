@@ -682,18 +682,19 @@ class FloodSolver:
         self.add_rainfall(dt)
 
         # --------------------------------------------------------
-        # Infiltration
-        # --------------------------------------------------------
-
-        self.apply_infiltration(dt)
-
-        # --------------------------------------------------------
-        # Obstacles cannot hold water.
+        # Obstacles cannot hold water (so it can't soak in there
+        # either: clear it before infiltration).
         # --------------------------------------------------------
 
         self.depth[
             self.obstacle_mask
         ] = 0.0
+
+        # --------------------------------------------------------
+        # Infiltration
+        # --------------------------------------------------------
+
+        self.apply_infiltration(dt)
 
         # --------------------------------------------------------
         # Transport

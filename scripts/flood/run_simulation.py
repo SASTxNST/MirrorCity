@@ -11,14 +11,14 @@ from pathlib import Path
 import numpy as np
 
 from .boundary import BoundaryConditions
-from .infiltration import GreenAmptInfiltration
+from .infiltration import IMPERVIOUS_SURFACES, GreenAmptInfiltration
 from .obstacles import rectangular_obstacle
 from .rainfall import storm_rainfall
-from .roughness import uniform_roughness
+from .roughness import land_use_roughness, uniform_roughness
 from .solver import FloodSolver
 from .terrain import (
     create_test_terrain,
-    load_obstacles,
+    load_layer,
     load_terrain,
     save_terrain,
 )
@@ -160,6 +160,13 @@ def main() -> None:
 
     shape = elevation.shape
 
+    # Surface types ("road", "grass", ...) saved with the terrain, if any.
+    surface = (
+        load_layer(args.terrain, "surface")
+        if args.terrain
+        else None
+    )
+
     # ============================================================
     # Rainfall
     # ============================================================
@@ -178,9 +185,17 @@ def main() -> None:
     # Roughness
     # ============================================================
 
-    manning_n = uniform_roughness(
-        shape,
-        args.manning,
+    manning_n = (
+        uniform_roughness(
+            shape,
+            args.manning,
+        )
+        if surface is None
+        # --manning covers surfaces without a listed value.
+        else land_use_roughness(
+            surface,
+            default=args.manning,
+        )
     )
 
     # ============================================================
@@ -192,6 +207,13 @@ def main() -> None:
             shape=shape,
             hydraulic_conductivity=(
                 args.infiltration_k
+                if surface is None
+                # Paved surfaces are impervious.
+                else np.where(
+                    np.isin(surface, IMPERVIOUS_SURFACES),
+                    0.0,
+                    args.infiltration_k,
+                )
             ),
             suction_head=0.10,
             moisture_deficit=0.25,
@@ -208,12 +230,13 @@ def main() -> None:
     )
 
     if args.terrain:
-        saved_obstacles = load_obstacles(
-            args.terrain
+        saved_obstacles = load_layer(
+            args.terrain,
+            "obstacles",
         )
 
         if saved_obstacles is not None:
-            obstacle_mask = saved_obstacles
+            obstacle_mask = saved_obstacles.astype(bool)
 
     if args.building:
 
@@ -411,6 +434,7 @@ def main() -> None:
                 args.rainfall
             ),
             "manning_n": args.manning,
+            "per_surface_parameters": surface is not None,
             "infiltration": True,
             "hydraulic_conductivity_m_per_s": (
                 args.infiltration_k
@@ -438,6 +462,17 @@ def main() -> None:
             ),
             "infiltration_depth_mean_m": (
                 solver.total_infiltration_depth
+            ),
+            # Share of the rain that fell on open ground (rain on
+            # obstacles is removed) and soaked in.
+            "rain_soaked_in_fraction": (
+                solver.total_infiltration_depth
+                * obstacle_mask.size
+                / max(
+                    solver.total_rainfall_depth
+                    * (~obstacle_mask).sum(),
+                    1.0e-12,
+                )
             ),
             "boundary_outflow_m3": (
                 solver.total_outflow_volume
