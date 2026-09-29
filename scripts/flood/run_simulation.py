@@ -300,6 +300,11 @@ def main() -> None:
         infiltration=infiltration,
         obstacle_mask=obstacle_mask,
         boundary=boundary,
+        roof_mask=(
+            load_layer(args.terrain, "roofs")
+            if args.terrain
+            else None
+        ),
     )
 
     print()
@@ -463,14 +468,18 @@ def main() -> None:
             "infiltration_depth_mean_m": (
                 solver.total_infiltration_depth
             ),
-            # Share of the rain that fell on open ground (rain on
-            # obstacles is removed) and soaked in.
+            # Share of the rain reaching open ground (directly or
+            # off roofs; rain on other obstacles is removed) that
+            # soaked in.
             "rain_soaked_in_fraction": (
                 solver.total_infiltration_depth
                 * obstacle_mask.size
                 / max(
                     solver.total_rainfall_depth
-                    * (~obstacle_mask).sum(),
+                    * (
+                        (~solver.obstacle_mask).sum()
+                        + solver.roof_cells.sum()
+                    ),
                     1.0e-12,
                 )
             ),

@@ -2,7 +2,8 @@
 Build a flood-model terrain grid from the LiDAR street scan.
 
 Rasterizes public/models/lidar/road-terrain.obj (a Z-up ground mesh) onto
-a regular grid and marks the scanned building masses as obstacles. Cells
+a regular grid and marks the scanned building masses as roofs (obstacles
+whose rain drains to the ground). Cells
 the scan never covered are obstacles too: the model has no ground there.
 Each cell also gets a surface type (road / concrete / grass) recovered
 from the mesh's semantic colours, for per-surface roughness and
@@ -155,8 +156,8 @@ def classify_surface(colours: np.ndarray) -> np.ndarray:
     return np.array(names)[distance.argmin(axis=-1)]
 
 
-def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Elevation, obstacle mask and surface types for the LiDAR street scan."""
+def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Elevation, obstacle mask, surface types and roofs for the LiDAR street scan."""
 
     ground, ground_faces = read_obj(LIDAR / "road-terrain.obj")
     buildings, building_faces = read_obj(LIDAR / "building-masses.obj")
@@ -198,14 +199,14 @@ def build(cell: float = CELL) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     surface = np.full(shape, "", dtype="<U8")
     surface[~no_ground] = classify_surface(colours[~no_ground])
 
-    return elevation, obstacles, surface
+    return elevation, obstacles, surface, footprints
 
 
 def main() -> None:
 
-    elevation, obstacles, surface = build()
+    elevation, obstacles, surface, roofs = build()
 
-    save_terrain(OUTPUT, elevation, CELL, CELL, obstacles=obstacles, surface=surface)
+    save_terrain(OUTPUT, elevation, CELL, CELL, obstacles=obstacles, surface=surface, roofs=roofs)
 
     ny, nx = elevation.shape
     open_ground = ~obstacles
@@ -213,6 +214,7 @@ def main() -> None:
     print(f"Wrote {OUTPUT}")
     print(f"Grid:        {nx} × {ny} at {CELL} m")
     print(f"Open ground: {open_ground.sum()} cells ({open_ground.mean():.0%})")
+    print(f"Roofs:       {roofs.sum()} cells ({roofs.mean():.0%}), drained to the ground")
     print(
         f"Relief:      {np.ptp(elevation[open_ground]):.2f} m "
         f"({elevation[open_ground].min():.2f} to {elevation[open_ground].max():.2f})"
