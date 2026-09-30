@@ -56,10 +56,6 @@ const buildings = [
   { id: 12, name: "Solar Microgrid", type: "Energy", x: 80, y: 72, w: 82, d: 64, h: 25, tone: "sand" },
 ];
 
-// Assumed street-drain capacity for the flood model (uncalibrated; real
-// drain data would replace this).
-const DRAIN_CAPACITY_MM_PER_HOUR = 20;
-
 const scenarios = {
   sewer: { label: "Sewer capacity", kicker: "FLOW SIMULATION", accent: "#4f6fff" },
   flood: { label: "Monsoon flood", kicker: "HAZARD MODEL", accent: "#00cfff" },
@@ -339,7 +335,7 @@ export default function Home() {
       // Runs scripts/flood in the browser (Pyodide); the first run downloads Python (~8.5 MB).
       floodWorkerRef.current ??= new FloodWorker();
       const worker = floodWorkerRef.current;
-      const inputs = { rainfall, stormMinutes, duration: stormMinutes * 60, terrain: "lidar-street" as const, drainCapacity: DRAIN_CAPACITY_MM_PER_HOUR };
+      const inputs = { rainfall, stormMinutes, duration: stormMinutes * 60, terrain: "lidar-street" as const, drains: true };
       setToast("Running flood model… first run downloads the model");
       const finish = (error: string | null) => {
         setRunning(false);
@@ -908,7 +904,7 @@ export default function Home() {
             </section>
 
             <aside className="reference-aside">
-              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} rainfall={rainfall} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} stormMinutes={stormMinutes} drainCapacity={DRAIN_CAPACITY_MM_PER_HOUR} floodRun={floodRun} onRainfallChange={(value) => { setRainfall(value); setComplete(false); }} onStormMinutesChange={(value) => { setStormMinutes(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
+              <ScenarioPanel scenario={scenario} activeScenario={activeScenario} population={population} rainfall={rainfall} metrics={metricSet} running={running} complete={complete} onPopulationChange={(value) => { setPopulation(value); setComplete(false); }} stormMinutes={stormMinutes} floodRun={floodRun} onRainfallChange={(value) => { setRainfall(value); setComplete(false); }} onStormMinutesChange={(value) => { setStormMinutes(value); setComplete(false); }} onRun={runSimulation} onOpenWorkspace={() => setActiveView("scenarios")} />
 
               <section className="reference-side-card object-card">
                 <header><div><span>SELECTED OBJECT</span><h3>{selected.name}</h3></div><button aria-label="Object options">•••</button></header>

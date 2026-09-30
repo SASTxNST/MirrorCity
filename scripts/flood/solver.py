@@ -104,6 +104,10 @@ class FloodSolver:
             Up to this rate of surface water is removed and counted
             as drained.
 
+        drainage:
+            Optional drainage.DrainageCoupling: inlets exchanging
+            water with a storm-drain network (EPA SWMM).
+
         boundary:
             Open/closed boundary conditions.
     """
@@ -121,6 +125,7 @@ class FloodSolver:
         roof_mask: np.ndarray | None = None,
         sink_mask: np.ndarray | None = None,
         drain_rate: float | np.ndarray = 0.0,
+        drainage=None,
     ) -> None:
 
         elevation = np.asarray(
@@ -250,6 +255,8 @@ class FloodSolver:
             raise ValueError(
                 "drain_rate cannot be negative."
             )
+
+        self.drainage = drainage
 
         self.roof_cells, self.roof_outlets = self._roof_outlets(
             roof_mask
@@ -818,6 +825,9 @@ class FloodSolver:
         self.total_drained_volume += float(
             drained.sum() * self.dx * self.dy
         )
+
+        if self.drainage is not None:
+            self.drainage.step(self.depth, dt)
 
         # --------------------------------------------------------
         # Transport

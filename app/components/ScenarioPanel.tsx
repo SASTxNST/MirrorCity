@@ -10,7 +10,6 @@ type Props = {
   population: number;
   rainfall: number;
   stormMinutes: number;
-  drainCapacity: number;
   floodRun: FloodRun | null;
   metrics: Array<{ value: string; label: string; trend: string }>;
   running: boolean;
@@ -22,11 +21,11 @@ type Props = {
   onOpenWorkspace: () => void;
 };
 
-export default function ScenarioPanel({ scenario, activeScenario, population, rainfall, stormMinutes, drainCapacity, floodRun, metrics, running, complete, onPopulationChange, onRainfallChange, onStormMinutesChange, onRun, onOpenWorkspace }: Props) {
+export default function ScenarioPanel({ scenario, activeScenario, population, rainfall, stormMinutes, floodRun, metrics, running, complete, onPopulationChange, onRainfallChange, onStormMinutesChange, onRun, onOpenWorkspace }: Props) {
   return (
     <section className="reference-side-card simulation-card">
       <header><div><span>{scenario.kicker}</span><h2>{scenario.label}</h2></div><button aria-label="Open scenario workspace" onClick={onOpenWorkspace}>•••</button></header>
-      <p>{activeScenario === "sewer" ? "EPA SWMM on an illustrative sewer network: how the population's daily sewage peak loads the pipes." : activeScenario === "flood" ? `Flood model on a LiDAR-scanned street. Street drains assumed to carry ${drainCapacity} mm/h.` : "Model route load, clearance and emergency access."}</p>
+      <p>{activeScenario === "sewer" ? "EPA SWMM on an illustrative sewer network: how the population's daily sewage peak loads the pipes." : activeScenario === "flood" ? "Flood model on a LiDAR-scanned street, coupled with its storm drains in EPA SWMM (illustrative network, not surveyed)." : "Model route load, clearance and emergency access."}</p>
       {activeScenario === "flood" ? (
         <>
           <label className="reference-population"><span><small>PEAK RAINFALL</small><strong>{rainfall} mm/h</strong></span><input aria-label="Peak rainfall" type="range" min="25" max="200" step="5" value={rainfall} onChange={(event) => onRainfallChange(Number(event.target.value))} /><i><small>25</small><small>100</small><small>200</small></i></label>
@@ -54,7 +53,7 @@ const MAX_SHADE_DEPTH_M = 0.3;
 // Peak water depth per cell (north up), and the deepest water over the storm.
 function FloodMap({ run }: { run: FloodRun }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { peak_depth_m: depth, cell_kind: kind } = run.maps;
+  const { peak_depth_m: depth, cell_kind: kind, inlets } = run.maps;
   const rows = depth.length;
   const columns = depth[0].length;
 
@@ -68,7 +67,12 @@ function FloodMap({ run }: { run: FloodRun }) {
       context.fillStyle = kind[j][i] === 1 ? "#34405c" : value < 0.01 ? "#0f1d36" : `rgb(${Math.round(90 - 80 * shade)}, ${Math.round(210 - 110 * shade)}, 255)`;
       context.fillRect(i, rows - 1 - j, 1, 1);
     }));
-  }, [depth, kind, rows, columns]);
+    // Storm-drain inlets: white, or orange if that drain ever backed up.
+    inlets?.forEach(([j, i, backedUp]) => {
+      context.fillStyle = backedUp ? "#ff9d4d" : "#ffffff";
+      context.fillRect(i, rows - 1 - j, 1, 1);
+    });
+  }, [depth, kind, inlets, rows, columns]);
 
   const { time_s: time, max_depth_m: deepest } = run.timeline;
   const end = time[time.length - 1] || 1;
@@ -81,7 +85,7 @@ function FloodMap({ run }: { run: FloodRun }) {
       <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-label="Deepest water over the storm" style={{ width: "100%", height: 32, display: "block", marginTop: 4 }}>
         <polyline points={line} fill="none" stroke="#5ac8ff" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       </svg>
-      <figcaption style={{ fontSize: 11, opacity: 0.7 }}>Peak depth (light → {MAX_SHADE_DEPTH_M} m+ deep blue) · grey = buildings and walls · line: deepest water over the storm (max {top.toFixed(2)} m)</figcaption>
+      <figcaption style={{ fontSize: 11, opacity: 0.7 }}>Peak depth (light → {MAX_SHADE_DEPTH_M} m+ deep blue) · grey = buildings and walls · white = drain inlet (orange = backed up) · line: deepest water over the storm (max {top.toFixed(2)} m)</figcaption>
     </figure>
   );
 }
