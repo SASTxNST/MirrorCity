@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseSewerReport, sewerMetrics, sewerNetwork } from "../lib/sewer-network.ts";
+import { runSwmm } from "../lib/swmm.ts";
 
 // Fixtures are reports from a native build of EPA SWMM 5.2.4 running
 // sewerNetwork(2000) and sewerNetwork(12000).
@@ -34,4 +35,17 @@ test("sewer report: an overloaded network reports surcharged manholes", () => {
   assert.equal(results.surchargedManholes, 4);
   assert.ok(Math.max(...results.pipes.map((pipe) => pipe.flowRatio)) > 1);
   assert.equal(sewerMetrics(results)[2].value, "4");
+});
+
+test("SWMM engine (lib/swmm-engine) is EPA 5.2.4 and reproduces the native run", async () => {
+  const { default: createSwmm } = await import("../lib/swmm-engine/swmm.mjs");
+  const engine = await createSwmm({ print: () => {}, printErr: () => {} });
+  assert.equal(engine.ccall("swmm_getVersion", "number", [], []), 52004);
+
+  const { code, report: wasmReport } = await runSwmm(sewerNetwork(2000));
+  assert.equal(code, 0);
+  assert.deepEqual(parseSewerReport(wasmReport), parseSewerReport(report("swmm-ward-2000.rpt")));
+
+  const overloaded = await runSwmm(sewerNetwork(12000));
+  assert.deepEqual(parseSewerReport(overloaded.report), parseSewerReport(report("swmm-ward-12000.rpt")));
 });
