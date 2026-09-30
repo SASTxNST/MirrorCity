@@ -45,6 +45,7 @@ The current repository is an early, browser-based proof of concept—not yet a p
 | Capability | What exists now |
 | --- | --- |
 | **3D city engine** | A real-time Three.js scene with an orbit camera, lighting, shadows, fog, water, roads, buildings, vegetation, traffic, and point-cloud visualization. |
+| **Real-world geography** | Search any place on Earth and load it as a 3D scene built from live OpenStreetMap data: real building footprints and heights, the road network, water, and parks. |
 | **LiDAR reconstruction** | Open3D pipelines for filtering labelled points, terrain meshing, semantic clustering, preview generation, and GLB/OBJ/PLY export. |
 | **IITH terrain set** | Three browser-ready terrain models reconstructed from low-, medium-, and high-slope labelled captures. |
 | **Asset authoring** | Place, select, drag, rotate, scale, nudge, duplicate, replace, delete, inspect, and download civic assets. |
@@ -52,6 +53,24 @@ The current repository is an early, browser-based proof of concept—not yet a p
 | **Scenario workspace** | Interactive population, sewer-capacity, flood, evacuation, and incident-response demonstrations. |
 | **Operational view** | Layer controls, sensor indicators, capital-work status, simulated vehicles, asset health, and an event feed. |
 | **Comparison workflow** | Current-versus-proposed district view. |
+
+### Real-world geography (`/explore`)
+
+Search a place, and MirrorCity builds a 3D scene from live OpenStreetMap data. Nominatim resolves the name to coordinates; Overpass returns the ways and relations inside the requested radius; the browser projects them into local metres and extrudes the building footprints.
+
+```text
+Search  ->  Nominatim  ->  lat/lon  ->  Overpass  ->  clip + project  ->  3D scene
+```
+
+Heights come from OSM's `height` and `building:levels` tags where a surveyor recorded them. Where nobody has, MirrorCity infers a height from the building type and says so: the panel reports what share of the skyline is surveyed, and the inspector marks each building's height as a survey tag, a storey count, or inferred. A scene of Connaught Place is 26% surveyed; most Indian wards are closer to 3%.
+
+Some details that matter:
+
+- **Geometry is clipped to the area you asked for.** Overpass returns each way in full, so a single national highway can arrive hundreds of kilometres long. Without clipping, a 700 m scene would report 97 km of road as 300 km.
+- **Overpass is a free shared service.** Requests are proxied through `/api/osm`, snapped to a coarse grid so neighbouring views share an edge-cache entry, capped at a 1.5 km radius, and retried across mirrors. At busy times it queues, and the loader says so rather than looking stuck.
+- **Nothing here needs an API key or an account.** OpenStreetMap, Nominatim and Overpass are open; there is no Cesium Ion token and no tile bill.
+
+Terrain is flat for now. Elevation, and running the flood and sewer solvers over real ward geometry rather than the synthetic district, are the next steps.
 
 ### IITH LiDAR terrain reconstructions
 

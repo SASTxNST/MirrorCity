@@ -3,6 +3,7 @@
 /// <reference types="vite/client" />
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
@@ -751,6 +752,7 @@ export default function Home() {
             <div className="reference-breadcrumb"><span>Mirror City</span><b>/</b><span>{districtName}</span><b>/</b><strong>{activeViewLabel[activeView]}</strong></div>
             <div className="reference-actions">
               {savingOff && <span className="saving-off" role="status" title="The session couldn't load, so changes in this tab won't be kept.">Saving unavailable · changes won&apos;t be kept</span>}
+              <Link className="reference-explore-link" href="/explore">Real-world map</Link>
               <button className={`reference-live ${operationalMode ? "active" : ""}`} onClick={() => setOperationalMode((value) => !value)}><i />{operationalMode ? "Twin connected" : "Planning mode"}</button>
               <button className="reference-icon-button" aria-label="Search help and guidance" onClick={() => setActiveView("help")}><Icon name="search" /></button>
               <button className="reference-icon-button notification" aria-label="Open operational notifications" onClick={() => setActiveView("operations")}><Icon name="bell" /><i /></button>
