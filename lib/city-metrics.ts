@@ -32,14 +32,3 @@ export function floodMetrics(results: FloodResults | null) {
     { value: `${Math.round(results.water_volume_m3)} m³`, label: "Standing water", trend: `${percent(results.rain_soaked_in_fraction)} soaked · ${percent(results.rain_drained_fraction)} drained` },
   ];
 }
-
-export function evacuationMetrics(population: number) {
-  const clearance = Math.round(24 + (population - 1500) * 0.009);
-  const routed = Math.round(population * 0.97);
-  const bottlenecks = population >= 2500 ? 4 : population >= 2000 ? 2 : 1;
-  return [
-    { value: `${clearance} min`, label: "Clearance time", trend: clearance <= 31 ? `−${31 - clearance} min` : `+${clearance - 31} min` },
-    { value: routed.toLocaleString(), label: "People routed", trend: "97%" },
-    { value: String(bottlenecks), label: "Bottlenecks", trend: bottlenecks > 2 ? "Action needed" : "Review" },
-  ];
-}
