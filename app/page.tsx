@@ -6,7 +6,8 @@ import Image from "next/image";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
-import { evacuationMetrics, floodMetrics, type FloodRun } from "../lib/city-metrics";
+import { floodMetrics, type FloodRun } from "../lib/city-metrics";
+import { evacuate, evacuationMetrics } from "../lib/evacuation";
 import { parseSewerReport, sewerMetrics, sewerNetwork, type SewerResults } from "../lib/sewer-network";
 import { runSwmm } from "../lib/swmm";
 import FloodWorker from "./flood-worker.ts?worker";
@@ -218,6 +219,8 @@ export default function Home() {
   const floodRun = flood?.rainfall === rainfall && flood.stormMinutes === stormMinutes ? flood.run : null;
   const floodResults = floodRun?.results ?? null;
   const sewerResults = sewerRun?.population === population ? sewerRun.results : null;
+  // Walking evacuation over the drawn streets (instant, so it tracks the slider).
+  const evacuation = useMemo(() => evacuate(population, buildings), [population]);
 
   // The sewer model (EPA SWMM, ~20 ms) reruns shortly after the population slider settles.
   useEffect(() => {
@@ -236,9 +239,9 @@ export default function Home() {
 
   const metricSet = useMemo(() => {
     if (activeScenario === "flood") return floodMetrics(floodResults);
-    if (activeScenario === "evacuation") return evacuationMetrics(population);
+    if (activeScenario === "evacuation") return evacuationMetrics(evacuation);
     return sewerMetrics(sewerResults);
-  }, [activeScenario, floodResults, population, sewerResults]);
+  }, [activeScenario, evacuation, floodResults, sewerResults]);
 
   useEffect(() => () => floodWorkerRef.current?.terminate(), []);
 
@@ -797,14 +800,14 @@ export default function Home() {
                     <span className="studio-index">0{index + 1}</span><i style={{ background: scenarios[key].accent }} />
                     <small>{scenarios[key].kicker}</small><h2>{scenarios[key].label}</h2>
                     <p>{key === "sewer" ? "Stress-test network capacity against projected occupancy." : key === "flood" ? "Map depth, exposure and drain-down under monsoon load." : "Model clearance time, route demand and emergency access."}</p>
-                    <strong>{key === "sewer" ? `${sewerMetrics(sewerResults)[0].value} load` : key === "flood" ? `${floodMetrics(floodResults)[0].value} peak` : `${evacuationMetrics(population)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
+                    <strong>{key === "sewer" ? `${sewerMetrics(sewerResults)[0].value} load` : key === "flood" ? `${floodMetrics(floodResults)[0].value} peak` : `${evacuationMetrics(evacuation)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
                   </button>)}
                 </div>
                 <div className="workspace-lower-grid">
                   <section className="workspace-panel simulation-history">
                     <header><div><span>RECENT RUNS</span><h3>Scenario history</h3></div><button onClick={() => setActiveView("twin")}>Open in twin →</button></header>
-                    {/* Sewer and flood rows show real model results; the evacuation row is still sample data. */}
-                    {[`Sewer · ${population.toLocaleString()} residents`, `Flood · ${rainfall} mm/h, ${stormMinutes} min`, "Evacuation · evening peak"].map((label, index) => <div className="history-row" key={index}><i className={(index === 0 && sewerResults) || (index === 1 && floodResults) ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? (sewerResults ? `Last run · ${sewerMetrics(sewerResults)[0].value} load` : "Computing…") : index === 1 ? (floodResults ? `Last run · ${floodResults.peak_depth_m.toFixed(2)} m peak` : "Not run yet") : "24 Aug, 09:18"}</small></span><em>{index === 0 ? "Illustrative network" : index === 1 ? "Not calibrated" : "91% confidence"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
+                    {/* Each row shows that model's latest result. */}
+                    {[`Sewer · ${population.toLocaleString()} residents`, `Flood · ${rainfall} mm/h, ${stormMinutes} min`, `Evacuation · ${population.toLocaleString()} residents`].map((label, index) => <div className="history-row" key={index}><i className={(index === 0 && sewerResults) || (index === 1 && floodResults) || index === 2 ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? (sewerResults ? `Last run · ${sewerMetrics(sewerResults)[0].value} load` : "Computing…") : index === 1 ? (floodResults ? `Last run · ${floodResults.peak_depth_m.toFixed(2)} m peak` : "Not run yet") : `Last run · ${evacuationMetrics(evacuation)[0].value} clearance`}</small></span><em>{index === 0 ? "Illustrative network" : index === 1 ? "Not calibrated" : "Illustrative network"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
                   </section>
                   <section className="workspace-panel assumptions-panel">
                     <header><div><span>MODEL INPUTS</span><h3>Live assumptions</h3></div></header>

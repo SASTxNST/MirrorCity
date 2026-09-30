@@ -25,7 +25,7 @@ export default function ScenarioPanel({ scenario, activeScenario, population, ra
   return (
     <section className="reference-side-card simulation-card">
       <header><div><span>{scenario.kicker}</span><h2>{scenario.label}</h2></div><button aria-label="Open scenario workspace" onClick={onOpenWorkspace}>•••</button></header>
-      <p>{activeScenario === "sewer" ? "EPA SWMM on an illustrative sewer network: how the population's daily sewage peak loads the pipes." : activeScenario === "flood" ? "Flood model on a LiDAR-scanned street, coupled with its storm drains in EPA SWMM (illustrative network, not surveyed)." : "Model route load, clearance and emergency access."}</p>
+      <p>{activeScenario === "sewer" ? "EPA SWMM on an illustrative sewer network: how the population's daily sewage peak loads the pipes." : activeScenario === "flood" ? "Flood model on a LiDAR-scanned street, coupled with its storm drains in EPA SWMM (illustrative network, not surveyed)." : "Walking evacuation over the district's drawn streets: warning time, the longest walk, and queues at the narrowest roads."}</p>
       {activeScenario === "flood" ? (
         <>
           <label className="reference-population"><span><small>PEAK RAINFALL</small><strong>{rainfall} mm/h</strong></span><input aria-label="Peak rainfall" type="range" min="25" max="200" step="5" value={rainfall} onChange={(event) => onRainfallChange(Number(event.target.value))} /><i><small>25</small><small>100</small><small>200</small></i></label>
@@ -41,7 +41,8 @@ export default function ScenarioPanel({ scenario, activeScenario, population, ra
         // The sewer network is designed to CPHEEO rules (lib/sewer-network.ts), not surveyed, so there's no confidence score.
         <div className="reference-confidence"><span><small>MODEL STATUS</small><strong>Illustrative</strong></span><p><em /> Real SWMM engine · designed network, not surveyed pipes</p></div>
       ) : (
-        <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>91%</strong></span><i><b style={{ width: "91%" }} /></i><p><em /> Concept model · not calibrated</p></div>
+        // Streets and crowd-flow values are assumptions (lib/evacuation.ts), so there's no confidence score.
+        <div className="reference-confidence"><span><small>MODEL STATUS</small><strong>Illustrative</strong></span><p><em /> Max-flow over the drawn streets · assumed widths, not surveyed</p></div>
       )}
       <button className={`reference-side-run ${running ? "running" : ""}`} disabled={running} onClick={onRun}>{running ? (activeScenario === "flood" ? "Running flood model…" : "Computing network…") : complete ? "✓ Simulation complete" : "Run simulation"}<Icon name="play" /></button>
     </section>
