@@ -2,7 +2,7 @@
 
 /// <reference types="vite/client" />
 import { useEffect, useRef, useState } from "react";
-import GridWorker from "./grid-worker.ts?worker";
+import GridWorker from "../../grid-worker.ts?worker";
 
 // Lab page (not linked from the app): runs pandapower load flows in the
 // browser on standard test networks, to evaluate it before modelling the
