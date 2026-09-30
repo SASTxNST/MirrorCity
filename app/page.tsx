@@ -164,7 +164,9 @@ export default function Home() {
   const [buildingFloors, setBuildingFloors] = useState(4);
   const zoom = 1.18;
   const [importState, setImportState] = useState("IITH ground dataset · 11 PCD scans");
-  const [toast, setToast] = useState("Digital twin synchronized · 2 min ago");
+  const [toast, setToast] = useState("");
+  // True when the session couldn't load (e.g. no database): edits then aren't saved.
+  const [savingOff, setSavingOff] = useState(false);
   const [addedAssets, setAddedAssets] = useState<PlacedAsset[]>([]);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [assetSearch, setAssetSearch] = useState("");
@@ -245,7 +247,7 @@ export default function Home() {
     fetch("/api/session")
       .then((res) => res.json())
       .then((data: { session?: { id: number; districtName: string; population: number; floodRainfall?: number; floodStormMinutes?: number; activeScenario: string; layers: string } }) => {
-        if (!data.session) { setLoading(false); return; }
+        if (!data.session) { setSavingOff(true); setLoading(false); return; }
         const s = data.session;
         setSessionId(s.id);
         setDistrictName(s.districtName);
@@ -281,7 +283,7 @@ export default function Home() {
           }));
         }
       })
-      .catch(() => { /* DB not available in local dev without wrangler — fail silently */ })
+      .catch(() => setSavingOff(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -705,6 +707,7 @@ export default function Home() {
           <header className="reference-topbar">
             <div className="reference-breadcrumb"><span>Mirror City</span><b>/</b><span>{districtName}</span><b>/</b><strong>{activeViewLabel[activeView]}</strong></div>
             <div className="reference-actions">
+              {savingOff && <span className="saving-off" role="status" title="The session couldn't load, so changes in this tab won't be kept.">Saving unavailable · changes won&apos;t be kept</span>}
               <button className={`reference-live ${operationalMode ? "active" : ""}`} onClick={() => setOperationalMode((value) => !value)}><i />{operationalMode ? "Twin connected" : "Planning mode"}</button>
               <button className="reference-icon-button" aria-label="Search help and guidance" onClick={() => setActiveView("help")}><Icon name="search" /></button>
               <button className="reference-icon-button notification" aria-label="Open operational notifications" onClick={() => setActiveView("operations")}><Icon name="bell" /><i /></button>

@@ -870,6 +870,15 @@ button:focus-visible, input:focus-visible { outline-color: #49dfff; }
   letter-spacing: .06em;
   cursor: pointer;
 }
+.saving-off {
+  padding: 8px 12px;
+  border-radius: 15px;
+  color: #ffc58a;
+  background: rgba(255, 138, 61, 0.14);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .reference-live i { width: 5px; height: 5px; display: inline-block; margin-right: 6px; border-radius: 50%; background: #58647e; }
 .reference-live.active { color: #99f1ff; }
 .reference-live.active i { background: #46e9ff; box-shadow: 0 0 8px #46e9ff; }
@@ -1548,6 +1557,7 @@ button:focus-visible, input:focus-visible { outline-color: #49dfff; }
   .reference-breadcrumb { font-size: 10px; }
   .reference-breadcrumb span:nth-of-type(-n+2), .reference-breadcrumb b { display: none; }
   .reference-live { display: none; }
+  .saving-off { max-width: 150px; padding: 5px 10px; font-size: 10px; line-height: 1.25; white-space: normal; text-align: center; }
   .reference-content { display: block; padding: 10px 14px 24px; overflow-y: auto; }
   .reference-primary { min-height: calc(100dvh - 102px); }
   .reference-aside { display: none; }
