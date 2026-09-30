@@ -33,8 +33,8 @@ emcc -O3 -Wno-unknown-pragmas -Wno-everything \
   "$WORK"/swmm/src/solver/*.c \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSwmm \
   -sENVIRONMENT=web,worker,node -sSINGLE_FILE=1 -sALLOW_MEMORY_GROWTH=1 \
-  -sEXPORTED_FUNCTIONS=_swmm_run,_swmm_getVersion \
-  -sEXPORTED_RUNTIME_METHODS=FS,ccall \
+  -sEXPORTED_FUNCTIONS=_swmm_run,_swmm_getVersion,_swmm_open,_swmm_start,_swmm_stride,_swmm_end,_swmm_report,_swmm_close,_swmm_getIndex,_swmm_getValue,_swmm_setValue,_malloc,_free \
+  -sEXPORTED_RUNTIME_METHODS=FS,ccall,getValue \
   -o "$ROOT/lib/swmm-engine/swmm.mjs"
 
 echo "Built lib/swmm-engine/swmm.mjs from EPA SWMM $SWMM_TAG with Emscripten $EMSDK_VERSION"

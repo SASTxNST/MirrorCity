@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import drainage as drainage_module
 from .boundary import BoundaryConditions
 from .infiltration import IMPERVIOUS_SURFACES, GreenAmptInfiltration
 from .obstacles import rectangular_obstacle
@@ -79,6 +80,16 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Allow water to leave "
             "through the south boundary."
+        ),
+    )
+
+    parser.add_argument(
+        "--drains",
+        type=str,
+        default=None,
+        help=(
+            "SWMM storm-drain network (.inp) to couple "
+            "with the street; needs drainage.ENGINE."
         ),
     )
 
@@ -302,7 +313,25 @@ def main() -> None:
     # Solver
     # ============================================================
 
+    coupling = None
+
+    if args.drains:
+        if drainage_module.ENGINE is None:
+            raise SystemExit(
+                "--drains needs a SWMM engine in "
+                "scripts.flood.drainage.ENGINE "
+                "(the browser worker provides one)."
+            )
+
+        coupling = drainage_module.DrainageCoupling(
+            drainage_module.ENGINE,
+            Path(args.drains).read_text(),
+            dx,
+            dy,
+        )
+
     solver = FloodSolver(
+        drainage=coupling,
         elevation=elevation,
         dx=dx,
         dy=dy,
@@ -386,9 +415,20 @@ def main() -> None:
     # Run
     # ============================================================
 
-    states = solver.run(
-        duration=args.duration,
-        output_interval=60.0,
+    try:
+        states = solver.run(
+            duration=args.duration,
+            output_interval=60.0,
+        )
+    finally:
+        if coupling is not None:
+            coupling.close()
+
+    # Water the drains took for good (captured minus what backed up).
+    drained_by_network = (
+        coupling.captured - coupling.returned
+        if coupling is not None
+        else 0.0
     )
 
     # ============================================================
@@ -521,10 +561,22 @@ def main() -> None:
                 / rain_on_street
             ),
             "rain_drained_fraction": (
-                solver.total_drained_volume
+                (solver.total_drained_volume + drained_by_network)
                 / (rain_on_street * dx * dy)
             ),
-            "drained_m3": solver.total_drained_volume,
+            "drained_m3": solver.total_drained_volume + drained_by_network,
+            # Coupled storm drains (--drains), in m³.
+            "drain_network": (
+                None
+                if coupling is None
+                else {
+                    "captured_m3": coupling.captured,
+                    "returned_m3": coupling.returned,
+                    "discharged_m3": coupling.discharged,
+                    "inlets": len(coupling.names),
+                    "inlets_backed_up": int(coupling.backed_up.sum()),
+                }
+            ),
             # Deepest water anywhere, at any time, and when.
             "peak_depth_m": float(solver.peak_depth.max()),
             "peak_time_s": solver.peak_time,
@@ -565,6 +617,12 @@ def main() -> None:
             "peak_hazard": np.round(solver.peak_hazard, 3).tolist(),
             "elevation_m": np.round(elevation, 3).tolist(),
             # 0 street, 1 building, 2 outside the survey.
+            "inlets": (
+                []
+                if coupling is None
+                # Row, column and whether that inlet ever backed up (1).
+                else [[int(j), int(i), int(backed)] for j, i, backed in zip(coupling.rows, coupling.cols, coupling.backed_up)]
+            ),
             "cell_kind": (
                 solver.obstacle_mask.astype(int)
                 + 2 * solver.sink_mask

@@ -23,6 +23,8 @@ These tests verify:
     Manning normal-depth profile.
 17. Benchmark: a lake at rest stays at rest.
 18. Benchmark: water in a closed tilted box settles flat.
+19. Drain coupling conserves water, and a full network backs up.
+20. The committed storm-drain network matches its generator.
 """
 
 from __future__ import annotations
@@ -30,8 +32,10 @@ from __future__ import annotations
 import numpy as np
 
 from .boundary import BoundaryConditions
+from .drainage import DrainageCoupling
 from .infiltration import GreenAmptInfiltration
 from .lidar_terrain import OUTPUT, build, rasterize
+from . import storm_drains
 from .obstacles import rectangular_obstacle
 from .rainfall import constant_rainfall
 from .solver import FloodSolver
@@ -819,6 +823,107 @@ def test_settles_flat() -> None:
     assert abs(solver.total_water_volume() - volume) / volume < 1e-8
 
 
+class TankEngine:
+    """
+    Stand-in for SWMM: each node is a tank that empties at `rate` m³/s
+    and overflows (back to the street) above `capacity` m³.
+    """
+
+    def __init__(self, rate: float, capacity: float) -> None:
+        self.rate, self.capacity = rate, capacity
+
+    def open(self, swmm_input: str) -> None:
+        self.names, self.volume, self.inflows, self.overflows, self.out = [], [], [], [], 0.0
+
+    def index(self, name: str) -> int:
+        self.names.append(name)
+        self.volume.append(0.0)
+        self.inflows.append(0.0)
+        self.overflows.append(0.0)
+        return len(self.names) - 1
+
+    def set_inflow(self, index: int, flow: float) -> None:
+        self.inflows[index] = flow
+
+    def stride(self, seconds: int) -> None:
+        self.out = 0.0
+        for k in range(len(self.names)):
+            volume = self.volume[k] + self.inflows[k] * seconds
+            leaving = min(volume, self.rate * seconds)
+            volume -= leaving
+            self.out += leaving / seconds
+            self.overflows[k] = max(volume - self.capacity, 0.0) / seconds
+            self.volume[k] = min(volume, self.capacity)
+
+    def overflow(self, index: int) -> float:
+        return self.overflows[index]
+
+    def inflow(self, index: int) -> float:
+        return self.out
+
+    def close(self) -> None:
+        pass
+
+
+def test_drain_coupling() -> None:
+    """Coupled inlets: rain = street + captured - returned; full pipes back up."""
+
+    network = """[OUTFALLS]
+OUT 0 FREE
+
+[COORDINATES]
+IN1 5 5
+"""
+
+    print("Drain-coupling test")
+    print("-------------------")
+
+    for label, engine in [
+        ("roomy network", TankEngine(rate=0.01, capacity=10.0)),
+        ("full network", TankEngine(rate=0.0, capacity=0.05)),
+    ]:
+        coupling = DrainageCoupling(engine, network, 1.0, 1.0)
+
+        solver = FloodSolver(
+            elevation=np.zeros((10, 10)),
+            dx=1.0,
+            dy=1.0,
+            rainfall=constant_rainfall(60.0),
+            infiltration=None,
+            drainage=coupling,
+        )
+
+        solver.run(duration=600.0, output_interval=600.0)
+
+        rain = 60.0 / 1000.0 / 3600.0 * 600.0 * 100
+        balance = solver.total_water_volume() + coupling.captured - coupling.returned
+
+        print(
+            f"{label:13}: rain {rain:.4f} m³ = street {solver.total_water_volume():.4f} "
+            f"+ captured {coupling.captured:.4f} - returned {coupling.returned:.4f}"
+        )
+
+        assert abs(balance - rain) / rain < 1e-9
+        assert coupling.captured > 0.0
+
+        if label == "full network":
+            assert coupling.returned > 0.0 and coupling.backed_up.all()
+        else:
+            assert coupling.returned == 0.0
+
+
+def test_storm_drains_current() -> None:
+    """lidar-street-drains.inp is what storm_drains.py generates."""
+
+    current = storm_drains.OUTPUT.read_text() == storm_drains.swmm_input(*storm_drains.design())
+
+    print("Storm-drain network test")
+    print("------------------------")
+    print(f"Committed network current: {current}")
+
+    assert current, "Re-run: python3 -m scripts.flood.storm_drains"
+
+
 def run_all_tests() -> None:
     """Run every flood-model validation test."""
 
@@ -840,6 +945,8 @@ def run_all_tests() -> None:
     test_steady_plane_matches_manning()
     test_lake_at_rest()
     test_settles_flat()
+    test_drain_coupling()
+    test_storm_drains_current()
 
     print()
     print(
