@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Pyodide runtime copied by scripts/vendor-pyodide.mjs.
     "public/pyodide/**",
+    // EPA SWMM compiled by scripts/build-swmm-wasm.sh.
+    "lib/swmm-engine/swmm.mjs",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

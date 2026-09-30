@@ -1,4 +1,4 @@
-// Illustrative sanitary sewer for the Varuna River Ward, modelled in EPA SWMM.
+// Illustrative sanitary sewer for the Varuna River Ward, modelled in EPA SWMM 5.2.4.
 //
 // There is no surveyed sewer data for the ward, so this network is designed
 // to India's CPHEEO Manual on Sewerage and Sewage Treatment (2013) rules and

@@ -5,9 +5,9 @@ import { useState } from "react";
 import { runSwmm } from "../../../lib/swmm";
 import streetNetwork from "./street.inp?raw";
 
-// Lab page (not linked from the app): runs EPA SWMM (5.2.2, compiled to
-// WebAssembly by @fileops/swmm-wasm-web) in the browser on a small test
-// sewer network, to evaluate it before replacing the Sewer scenario's formula.
+// Lab page (not linked from the app): runs EPA SWMM 5.2.4 (lib/swmm-engine,
+// built by scripts/build-swmm-wasm.sh) in the browser on an editable test
+// sewer network.
 
 // Report sections worth showing; each runs until the next blank-line gap.
 const SECTIONS = ["Node Depth Summary", "Node Flooding Summary", "Link Flow Summary", "Flow Routing Continuity"];
