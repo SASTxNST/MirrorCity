@@ -2,16 +2,12 @@
 
 /// <reference types="vite/client" />
 import { useState } from "react";
+import { runSwmm } from "../../../lib/swmm";
 import streetNetwork from "./street.inp?raw";
 
 // Lab page (not linked from the app): runs EPA SWMM (5.2.2, compiled to
 // WebAssembly by @fileops/swmm-wasm-web) in the browser on a small test
 // sewer network, to evaluate it before replacing the Sewer scenario's formula.
-
-type SwmmModule = {
-  FS: { writeFile(path: string, data: string): void; readFile(path: string, options: { encoding: "utf8" }): string };
-  ccall(name: string, returnType: "number", argTypes: string[], args: string[]): number;
-};
 
 // Report sections worth showing; each runs until the next blank-line gap.
 const SECTIONS = ["Node Depth Summary", "Node Flooding Summary", "Link Flow Summary", "Flow Routing Continuity"];
@@ -25,17 +21,13 @@ function section(report: string, title: string) {
 export default function SewerLab() {
   const [network, setNetwork] = useState(streetNetwork);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ code: number; bootMs: number; runMs: number; report: string } | null>(null);
+  const [result, setResult] = useState<{ code: number; runMs: number; report: string } | null>(null);
 
   async function run() {
     setRunning(true);
     const started = performance.now();
-    const { default: createModule } = (await import("@fileops/swmm-wasm-web")) as { default: (options: object) => Promise<SwmmModule> };
-    const swmm = await createModule({ print: () => {}, printErr: () => {} });
-    const booted = performance.now();
-    swmm.FS.writeFile("/network.inp", network);
-    const code = swmm.ccall("swmm_run", "number", ["string", "string", "string"], ["/network.inp", "/network.rpt", "/network.out"]);
-    setResult({ code, bootMs: booted - started, runMs: performance.now() - booted, report: swmm.FS.readFile("/network.rpt", { encoding: "utf8" }) });
+    const { code, report } = await runSwmm(network);
+    setResult({ code, runMs: performance.now() - started, report });
     setRunning(false);
   }
 
@@ -52,7 +44,7 @@ export default function SewerLab() {
       {result && (
         <section>
           <p style={{ color: result.code ? "#ff8a7a" : "#8ea2c8" }}>
-            {result.code ? `SWMM error ${result.code} — see the report below` : "Run complete"} · engine start {result.bootMs.toFixed(0)} ms · run {result.runMs.toFixed(0)} ms
+            {result.code ? `SWMM error ${result.code} — see the report below` : "Run complete"} · {result.runMs.toFixed(0)} ms (includes loading the engine on the first run)
           </p>
           <pre style={{ fontSize: 12, overflowX: "auto", maxWidth: "100%" }}>
             {result.code ? result.report : SECTIONS.map((title) => section(result.report, title)).join("\n\n")}

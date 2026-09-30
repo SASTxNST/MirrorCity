@@ -26,7 +26,7 @@ export default function ScenarioPanel({ scenario, activeScenario, population, ra
   return (
     <section className="reference-side-card simulation-card">
       <header><div><span>{scenario.kicker}</span><h2>{scenario.label}</h2></div><button aria-label="Open scenario workspace" onClick={onOpenWorkspace}>•••</button></header>
-      <p>{activeScenario === "sewer" ? "Test how occupancy changes pressure across the district network." : activeScenario === "flood" ? `Flood model on a LiDAR-scanned street. Street drains assumed to carry ${drainCapacity} mm/h.` : "Model route load, clearance and emergency access."}</p>
+      <p>{activeScenario === "sewer" ? "EPA SWMM on an illustrative sewer network: how the population's daily sewage peak loads the pipes." : activeScenario === "flood" ? `Flood model on a LiDAR-scanned street. Street drains assumed to carry ${drainCapacity} mm/h.` : "Model route load, clearance and emergency access."}</p>
       {activeScenario === "flood" ? (
         <>
           <label className="reference-population"><span><small>PEAK RAINFALL</small><strong>{rainfall} mm/h</strong></span><input aria-label="Peak rainfall" type="range" min="25" max="200" step="5" value={rainfall} onChange={(event) => onRainfallChange(Number(event.target.value))} /><i><small>25</small><small>100</small><small>200</small></i></label>
@@ -38,8 +38,11 @@ export default function ScenarioPanel({ scenario, activeScenario, population, ra
       {activeScenario === "flood" ? (
         // The flood model has no confidence score: it passes benchmark tests (scripts/flood/validation.py) but hasn't been checked against real floods.
         <div className="reference-confidence"><span><small>MODEL STATUS</small><strong>Benchmarked</strong></span><p><em /> Checked against exact solutions · not calibrated against real floods</p></div>
+      ) : activeScenario === "sewer" ? (
+        // The sewer network is designed to CPHEEO rules (lib/sewer-network.ts), not surveyed, so there's no confidence score.
+        <div className="reference-confidence"><span><small>MODEL STATUS</small><strong>Illustrative</strong></span><p><em /> Real SWMM engine · designed network, not surveyed pipes</p></div>
       ) : (
-        <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>{activeScenario === "sewer" ? "94%" : "91%"}</strong></span><i><b style={{ width: activeScenario === "evacuation" ? "91%" : "94%" }} /></i><p><em /> Concept model · not calibrated</p></div>
+        <div className="reference-confidence"><span><small>MODEL CONFIDENCE</small><strong>91%</strong></span><i><b style={{ width: "91%" }} /></i><p><em /> Concept model · not calibrated</p></div>
       )}
       <button className={`reference-side-run ${running ? "running" : ""}`} disabled={running} onClick={onRun}>{running ? (activeScenario === "flood" ? "Running flood model…" : "Computing network…") : complete ? "✓ Simulation complete" : "Run simulation"}<Icon name="play" /></button>
     </section>

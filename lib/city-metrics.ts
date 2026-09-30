@@ -1,14 +1,3 @@
-export function sewerLoad(population: number) {
-  const dailyLitres = population * 135;          // Explicit prototype assumption; not a calibrated engineering input.
-  const peakFactor = population < 2000 ? 3.2 : population < 2500 ? 3.0 : 2.8;
-  const peakLps = (dailyLitres * peakFactor) / 86400;
-  const capacity = 60;                           // system capacity: 60 L/s
-  const load = Math.min(100, Math.round((peakLps / capacity) * 100));
-  const riskNodes = load >= 90 ? 3 : load >= 80 ? 1 : 0;
-  const status = load >= 90 ? "Capacity risk" : load >= 80 ? "Watch closely" : "Within capacity";
-  return { load, peakFlow: Math.round(peakLps * 10) / 10, riskNodes, status };
-}
-
 // Summary written by scripts/flood/run_simulation.py (run in the browser by app/flood-worker.ts).
 export type FloodResults = {
   peak_depth_m: number;

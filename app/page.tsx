@@ -6,7 +6,9 @@ import Image from "next/image";
 import CityEngine from "./CityEngine";
 import { CityEngineErrorBoundary } from "./CityEngineErrorBoundary";
 import ModelViewer from "./ModelViewer";
-import { evacuationMetrics, floodMetrics, sewerLoad, type FloodRun } from "../lib/city-metrics";
+import { evacuationMetrics, floodMetrics, type FloodRun } from "../lib/city-metrics";
+import { parseSewerReport, sewerMetrics, sewerNetwork, type SewerResults } from "../lib/sewer-network";
+import { runSwmm } from "../lib/swmm";
 import FloodWorker from "./flood-worker.ts?worker";
 import { Icon, type IconName } from "./components/Icon";
 import AssetPanel, { type AssetDefinition } from "./components/AssetPanel";
@@ -145,6 +147,7 @@ export default function Home() {
   const [population, setPopulation] = useState(2000);
   const [rainfall, setRainfall] = useState(100);
   const [stormMinutes, setStormMinutes] = useState(60);
+  const [sewerRun, setSewerRun] = useState<{ population: number; results: SewerResults } | null>(null);
   const [flood, setFlood] = useState<{ rainfall: number; stormMinutes: number; run: FloodRun } | null>(null);
   const floodWorkerRef = useRef<Worker | null>(null);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({ buildings: true, sewer: true, power: true, mobility: false, sensors: true, construction: true });
@@ -181,7 +184,6 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selected = buildings.find((building) => building.id === selectedId) ?? buildings[6];
-  const sewer = sewerLoad(population);
   const scenario = scenarios[activeScenario];
   const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];
   const filteredAssets = assetLibrary.filter((asset) => (assetCategory === "All" || asset.category === assetCategory) && `${asset.name} ${asset.category} ${asset.description}`.toLowerCase().includes(assetSearch.toLowerCase()));
@@ -217,16 +219,28 @@ export default function Home() {
   // Results only show while the sliders still match the storm they came from.
   const floodRun = flood?.rainfall === rainfall && flood.stormMinutes === stormMinutes ? flood.run : null;
   const floodResults = floodRun?.results ?? null;
+  const sewerResults = sewerRun?.population === population ? sewerRun.results : null;
+
+  // The sewer model (EPA SWMM, ~20 ms) reruns shortly after the population slider settles.
+  useEffect(() => {
+    let current = true;
+    const timer = window.setTimeout(() => {
+      runSwmm(sewerNetwork(population))
+        .then(({ code, report }) => {
+          if (!current) return;
+          if (code === 0) setSewerRun({ population, results: parseSewerReport(report) });
+          else setToast(`Sewer model failed · SWMM error ${code}`);
+        })
+        .catch(() => { if (current) setToast("Sewer model couldn't load"); });
+    }, 150);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [population]);
 
   const metricSet = useMemo(() => {
     if (activeScenario === "flood") return floodMetrics(floodResults);
     if (activeScenario === "evacuation") return evacuationMetrics(population);
-    return [
-      { value: `${sewer.load}%`, label: "Network load", trend: `+${Math.max(0, sewer.load - 68)}%` },
-      { value: `${sewer.peakFlow} L/s`, label: "Peak outflow", trend: `+${Math.max(0, sewer.peakFlow - 35.2).toFixed(1)} L/s` },
-      { value: String(sewer.riskNodes), label: "Risk nodes", trend: sewer.riskNodes >= 3 ? "Action needed" : sewer.riskNodes === 1 ? "Monitored" : "All clear" },
-    ];
-  }, [activeScenario, floodResults, population, sewer.load, sewer.peakFlow, sewer.riskNodes]);
+    return sewerMetrics(sewerResults);
+  }, [activeScenario, floodResults, population, sewerResults]);
 
   useEffect(() => () => floodWorkerRef.current?.terminate(), []);
 
@@ -784,14 +798,14 @@ export default function Home() {
                     <span className="studio-index">0{index + 1}</span><i style={{ background: scenarios[key].accent }} />
                     <small>{scenarios[key].kicker}</small><h2>{scenarios[key].label}</h2>
                     <p>{key === "sewer" ? "Stress-test network capacity against projected occupancy." : key === "flood" ? "Map depth, exposure and drain-down under monsoon load." : "Model clearance time, route demand and emergency access."}</p>
-                    <strong>{key === "sewer" ? `${sewer.load}% load` : key === "flood" ? `${floodMetrics(floodResults)[0].value} peak` : `${evacuationMetrics(population)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
+                    <strong>{key === "sewer" ? `${sewerMetrics(sewerResults)[0].value} load` : key === "flood" ? `${floodMetrics(floodResults)[0].value} peak` : `${evacuationMetrics(population)[0].value} clearance`}<b>{activeScenario === key ? "SELECTED" : "SELECT"}</b></strong>
                   </button>)}
                 </div>
                 <div className="workspace-lower-grid">
                   <section className="workspace-panel simulation-history">
                     <header><div><span>RECENT RUNS</span><h3>Scenario history</h3></div><button onClick={() => setActiveView("twin")}>Open in twin →</button></header>
-                    {/* The flood row shows the saved storm and its real result; the other rows are still sample data. */}
-                    {["Sewer · 2,000 residents", `Flood · ${rainfall} mm/h, ${stormMinutes} min`, "Evacuation · evening peak"].map((label, index) => <div className="history-row" key={index}><i className={index === 0 || (index === 1 && floodResults) ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? "Today, 14:32" : index === 1 ? (floodResults ? `Last run · ${floodResults.peak_depth_m.toFixed(2)} m peak` : "Not run yet") : "24 Aug, 09:18"}</small></span><em>{index === 0 ? "94% confidence" : index === 1 ? "Not calibrated" : "91% confidence"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
+                    {/* Sewer and flood rows show real model results; the evacuation row is still sample data. */}
+                    {[`Sewer · ${population.toLocaleString()} residents`, `Flood · ${rainfall} mm/h, ${stormMinutes} min`, "Evacuation · evening peak"].map((label, index) => <div className="history-row" key={index}><i className={(index === 0 && sewerResults) || (index === 1 && floodResults) ? "complete" : ""} /><span><strong>{label}</strong><small>{index === 0 ? (sewerResults ? `Last run · ${sewerMetrics(sewerResults)[0].value} load` : "Computing…") : index === 1 ? (floodResults ? `Last run · ${floodResults.peak_depth_m.toFixed(2)} m peak` : "Not run yet") : "24 Aug, 09:18"}</small></span><em>{index === 0 ? "Illustrative network" : index === 1 ? "Not calibrated" : "91% confidence"}</em><button onClick={() => { setActiveScenario(index === 0 ? "sewer" : index === 1 ? "flood" : "evacuation"); setActiveView("twin"); }}>View</button></div>)}
                   </section>
                   <section className="workspace-panel assumptions-panel">
                     <header><div><span>MODEL INPUTS</span><h3>Live assumptions</h3></div></header>
