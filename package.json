@@ -16,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "node scripts/db-migrate-local.mjs",
     "flood:test": "python3 -m scripts.flood.validation",
-    "flood:run": "python3 -m scripts.flood.run_simulation"
+    "flood:run": "python3 -m scripts.flood.run_simulation",
+    "grid:test": "python3 -m scripts.grid.validation"
   },
   "dependencies": {
     "3d-tiles-renderer": "0.5.3",

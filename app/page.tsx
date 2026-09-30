@@ -11,6 +11,18 @@ import { evacuate, evacuationMetrics } from "../lib/evacuation";
 import { parseSewerReport, sewerMetrics, sewerNetwork, type SewerResults } from "../lib/sewer-network";
 import { runSwmm } from "../lib/swmm";
 import FloodWorker from "./flood-worker.ts?worker";
+import GridWorker from "./grid-worker.ts?worker";
+
+// Results of scripts/grid/district_grid.py (illustrative district grid, pandapower).
+type GridResults = {
+  transformer_loading_percent: number;
+  transformers: number;
+  lowest_voltage_pu: number;
+  lowest_voltage_building: string;
+  buildings_below_limit: number;
+  losses_kw: number;
+  buildings: Record<string, { kw: number; vm_pu: number }>;
+};
 import { Icon, type IconName } from "./components/Icon";
 import AssetPanel, { type AssetDefinition } from "./components/AssetPanel";
 import LayerControls, { type LayerKey } from "./components/LayerControls";
@@ -144,6 +156,9 @@ export default function Home() {
   const [population, setPopulation] = useState(2000);
   const [rainfall, setRainfall] = useState(100);
   const [stormMinutes, setStormMinutes] = useState(60);
+  const [grid, setGrid] = useState<{ population: number; results: GridResults } | null>(null);
+  const [gridRunning, setGridRunning] = useState(false);
+  const gridWorkerRef = useRef<Worker | null>(null);
   const [sewerRun, setSewerRun] = useState<{ population: number; results: SewerResults } | null>(null);
   const [flood, setFlood] = useState<{ rainfall: number; stormMinutes: number; run: FloodRun } | null>(null);
   const floodWorkerRef = useRef<Worker | null>(null);
@@ -183,6 +198,8 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selected = buildings.find((building) => building.id === selectedId) ?? buildings[6];
+  const gridResults = grid?.population === population ? grid.results : null;
+  const substationLoad = gridResults ? `${Math.round(gridResults.transformer_loading_percent)}%` : null;
   const scenario = scenarios[activeScenario];
   const assetCategories = ["All", ...Array.from(new Set(assetLibrary.map((asset) => asset.category)))];
   const filteredAssets = assetLibrary.filter((asset) => (assetCategory === "All" || asset.category === assetCategory) && `${asset.name} ${asset.category} ${asset.description}`.toLowerCase().includes(assetSearch.toLowerCase()));
@@ -195,7 +212,7 @@ export default function Home() {
       ...(layers.sensors ? [
         { id: "sw-18", point: { x: 39, y: 61 }, height: 3.1, kind: "sensor" as const, label: "FLOW · SW-18", value: "42.6 L/s", detail: "Updated now" },
         { id: "aq-04", point: { x: 22, y: 22 }, height: 2.8, kind: "sensor" as const, label: "AIR · AQ-04", value: "GOOD", detail: "PM₂.₅ · 12 μg/m³" },
-        { id: "e-14", point: { x: 66, y: 45 }, height: 3.2, kind: "sensor" as const, label: "GRID · E-14", value: "71%", detail: "Nominal load" },
+        { id: "e-14", point: { x: 66, y: 45 }, height: 3.2, kind: "sensor" as const, label: "GRID · E-14", value: substationLoad ?? "—", detail: substationLoad ? "Transformer load (model)" : "Run load flow on the substation" },
       ] : []),
       ...(layers.construction ? [
         { id: "interceptor", point: { x: 48, y: 77 }, height: 2.1, kind: "worksite" as const, label: "INTERCEPTOR", value: "64%", detail: "Capital work" },
@@ -203,7 +220,7 @@ export default function Home() {
       ] : []),
       ...(incidentActive ? [{ id: "road-incident", point: { x: 56, y: 42 }, height: 1.5, kind: "incident" as const, label: "ACTIVE EVENT", value: "ROAD INCIDENT", detail: "2 teams dispatched" }] : []),
     ];
-  }, [incidentActive, layers.construction, layers.sensors, operationalMode]);
+  }, [incidentActive, layers.construction, layers.sensors, operationalMode, substationLoad]);
   const activeViewLabel: Record<ViewKey, string> = {
     twin: "District twin",
     scenarios: "Scenarios",
@@ -244,6 +261,29 @@ export default function Home() {
   }, [activeScenario, evacuation, floodResults, sewerResults]);
 
   useEffect(() => () => floodWorkerRef.current?.terminate(), []);
+  useEffect(() => () => gridWorkerRef.current?.terminate(), []);
+
+  // District power grid (pandapower in a worker). Runs on demand; the first
+  // run downloads the grid model (~30 MB). Afterwards it follows the slider.
+  function runGrid(people: number) {
+    gridWorkerRef.current ??= new GridWorker();
+    const worker = gridWorkerRef.current;
+    setGridRunning(true);
+    if (!grid) setToast("Running load flow… the first run downloads the grid model (~30 MB)");
+    worker.onmessage = ({ data }: MessageEvent<{ ok: true; result: GridResults } | { ok: false; error: string }>) => {
+      setGridRunning(false);
+      if (data.ok) setGrid({ population: people, results: data.result });
+      else setToast(`Load flow failed · ${data.error}`);
+    };
+    worker.onerror = () => { setGridRunning(false); setToast("Load flow failed · worker could not start"); };
+    worker.postMessage({ district: { population: people, buildings } });
+  }
+
+  useEffect(() => {
+    if (!grid || grid.population === population || gridRunning) return;
+    const timer = window.setTimeout(() => runGrid(population), 300);
+    return () => window.clearTimeout(timer);
+  });
 
   // Load session + canvas data on mount
   useEffect(() => {
@@ -825,7 +865,7 @@ export default function Home() {
                   </article>)}
                 </div>
                 <div className="workspace-lower-grid infrastructure-lower">
-                  <section className="workspace-panel topology-panel"><header><div><span>SYSTEM DEPENDENCIES</span><h3>Critical topology</h3></div><button>Export graph</button></header><div className="topology-flow"><span>Substation E-14<small>71% load</small></span><i /><span>Pump station P-08<small>Nominal</small></span><i /><span>Civic Hospital<small>Protected</small></span></div></section>
+                  <section className="workspace-panel topology-panel"><header><div><span>SYSTEM DEPENDENCIES</span><h3>Critical topology</h3></div><button>Export graph</button></header><div className="topology-flow"><span>Substation E-14<small>{substationLoad ? `${substationLoad} load` : "Load flow not run"}</small></span><i /><span>Pump station P-08<small>Nominal</small></span><i /><span>Civic Hospital<small>Protected</small></span></div></section>
                   <section className="workspace-panel"><header><div><span>CAPITAL PROGRAMME</span><h3>Works in progress</h3></div></header><div className="compact-progress"><span><strong>River interceptor</strong><small>64%</small></span><i><b style={{ width: "64%" }} /></i></div><div className="compact-progress"><span><strong>Emergency hub</strong><small>38%</small></span><i><b style={{ width: "38%" }} /></i></div></section>
                 </div>
               </section>}
@@ -915,7 +955,17 @@ export default function Home() {
               <section className="reference-side-card object-card">
                 <header><div><span>SELECTED OBJECT</span><h3>{selected.name}</h3></div><button aria-label="Object options">•••</button></header>
                 <div className="object-visual"><span className={`mini-building tone-${selected.tone}`} /><i>MC-{String(selected.id).padStart(4, "0")}</i></div>
-                <div className="object-health"><span><i />Operational</span><span>71% load</span></div>
+                <div className="object-health">
+                  {!gridResults ? (
+                    <><span><i />{gridRunning ? "Running load flow…" : "Grid not computed"}</span><button onClick={() => runGrid(population)} disabled={gridRunning}>Run load flow</button></>
+                  ) : selected.name === "Substation E-14" ? (
+                    <><span><i />{gridResults.transformers} × 1000 kVA</span><span>{substationLoad} load</span></>
+                  ) : gridResults.buildings[selected.name] ? (
+                    <><span><i />{Math.round(gridResults.buildings[selected.name].kw)} kW demand</span><span>{Math.round(gridResults.buildings[selected.name].vm_pu * 433)} V supply{gridResults.buildings[selected.name].vm_pu < 0.94 ? " · below limit" : ""}</span></>
+                  ) : (
+                    <><span><i />No supply modelled</span><span>—</span></>
+                  )}
+                </div>
                 <div className="object-actions"><button onClick={() => setActiveView("infrastructure")}>View details</button><button onClick={() => setCompareMode(true)}>Compare</button></div>
               </section>
 

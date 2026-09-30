@@ -27,5 +27,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14" # matches the Pyodide build /lab/flood runs on
-      - run: pip install numpy
+      - run: pip install numpy pandapower==3.5.5
       - run: npm run flood:test
+      - run: npm run grid:test
