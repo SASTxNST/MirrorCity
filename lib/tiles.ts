@@ -222,3 +222,78 @@ export function tilesToScene(
 }
 
 export type { OsmArea, OsmBuilding, OsmRoad };
+
+// ─── Critical facilities ─────────────────────────────────────────────────────
+//
+// The tiles already carry a named POI layer, so the facilities a resilience
+// view cares about cost nothing extra to extract: the Connaught Place tile
+// alone holds 173 of them. This works anywhere on Earth, unlike the camera
+// feeds, which only a handful of transport authorities publish.
+
+export type FacilityKind = "hospital" | "police" | "fire" | "school" | "transit";
+
+export type Facility = {
+  id: string;
+  name: string;
+  kind: FacilityKind;
+  /** The OpenMapTiles subclass, e.g. "clinic" under "hospital". */
+  detail: string;
+  point: Vec2;
+};
+
+const FACILITY_KIND: Record<string, FacilityKind> = {
+  hospital: "hospital",
+  police: "police",
+  fire_station: "fire",
+  school: "school",
+  college: "school",
+  bus: "transit",
+  railway: "transit",
+};
+
+export function tilesToFacilities(
+  decoded: Array<{ tile: TileId; data: DecodedTile }>,
+  origin: LatLng,
+  radiusM: number
+): Facility[] {
+  const out: Facility[] = [];
+  const seen = new Set<string>();
+
+  for (const { tile, data } of decoded) {
+    const layer = data.layers.poi;
+    if (!layer) continue;
+    const extent = layer.extent ?? EXTENT_FALLBACK;
+
+    for (let i = 0; i < layer.length; i++) {
+      const feature = layer.feature(i);
+      // POIs are points; anything else in this layer is not a facility.
+      if (feature.type !== 1) continue;
+      const kind = FACILITY_KIND[String(feature.properties.class ?? "")];
+      if (!kind) continue;
+      const name = typeof feature.properties.name === "string" ? feature.properties.name.trim() : "";
+      // An unnamed clinic cannot be acted on, so it is noise in a list.
+      if (name.length === 0) continue;
+
+      const geometry = feature.loadGeometry()[0]?.[0];
+      if (!geometry) continue;
+      const point = project(unprojectTile(tile, extent, geometry.x, geometry.y), origin);
+      if (Math.abs(point.x) > radiusM || Math.abs(point.y) > radiusM) continue;
+
+      // Tiles repeat a POI across tile seams; the name and rounded position
+      // identify it well enough to drop the duplicate.
+      const key = `${name}|${Math.round(point.x)}|${Math.round(point.y)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      out.push({
+        id: `poi/${tile.z}/${tile.x}/${tile.y}/${i}`,
+        name,
+        kind,
+        detail: String(feature.properties.subclass ?? kind).replace(/_/g, " "),
+        point,
+      });
+    }
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

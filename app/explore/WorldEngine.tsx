@@ -5,11 +5,13 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OsmBuilding, OsmScene, Vec2 } from "../../lib/osm";
+import type { Facility, FacilityKind } from "../../lib/tiles";
 
-export type WorldLayers = { buildings: boolean; roads: boolean; water: boolean; green: boolean };
+export type WorldLayers = { buildings: boolean; roads: boolean; water: boolean; green: boolean; facilities: boolean };
 
 type Props = {
   scene: OsmScene | null;
+  facilities: Facility[];
   layers: WorldLayers;
   selectedId: string | null;
   onSelect: (building: OsmBuilding | null) => void;
@@ -32,6 +34,17 @@ const ROAD_STYLE = {
 // is legible without a legend and the scene stays monochrome.
 const LOW = new THREE.Color(0x2b2b2b);
 const HIGH = new THREE.Color(0xe8e8e8);
+
+// Markers stand above the roofs so they read from any camera angle. Emergency
+// services take the hazard red; everything else stays monochrome.
+const FACILITY_COLOUR: Record<FacilityKind, number> = {
+  hospital: 0xe61919,
+  fire: 0xe61919,
+  police: 0xff8c42,
+  school: 0x9a9a9a,
+  transit: 0x6f6f6f,
+};
+const MARKER_HEIGHT_M = 26;
 
 function heightColour(heightM: number): THREE.Color {
   // Log ramp: most cities are 3–20 m, so a linear ramp would leave almost
@@ -133,7 +146,7 @@ function disposeTree(root: THREE.Object3D) {
   });
 }
 
-export default function WorldEngine({ scene, layers, selectedId, onSelect, onHover }: Props) {
+export default function WorldEngine({ scene, facilities, layers, selectedId, onSelect, onHover }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   // Imperative handles the render loop owns; React only re-runs the effects
   // that rebuild content when the data behind them changes.
@@ -201,6 +214,7 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
       roads: new THREE.Group(),
       water: new THREE.Group(),
       green: new THREE.Group(),
+      facilities: new THREE.Group(),
     } as Record<keyof WorldLayers, THREE.Group>;
     for (const group of Object.values(layerGroups)) content.add(group);
 
@@ -381,6 +395,44 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     core.controls.update();
     core.scene.fog = new THREE.Fog(0x0a0a0a, radius * 1.4, radius * 5);
   }, [scene]);
+
+  // Facility markers: a thin mast with a cube on top, one merged mesh per kind
+  // so a few hundred of them cost five draw calls rather than hundreds.
+  useEffect(() => {
+    const core = coreRef.current;
+    if (!core) return;
+    const group = core.layerGroups.facilities;
+    disposeTree(group);
+    group.clear();
+    if (facilities.length === 0) return;
+
+    const byKind = new Map<FacilityKind, Facility[]>();
+    for (const facility of facilities) {
+      const bucket = byKind.get(facility.kind);
+      if (bucket) bucket.push(facility);
+      else byKind.set(facility.kind, [facility]);
+    }
+
+    for (const [kind, entries] of byKind) {
+      const parts: THREE.BufferGeometry[] = [];
+      for (const facility of entries) {
+        const mast = new THREE.BoxGeometry(0.8, MARKER_HEIGHT_M, 0.8);
+        mast.translate(facility.point.x, MARKER_HEIGHT_M / 2, toWorldZ(facility.point.y));
+        const head = new THREE.BoxGeometry(5, 5, 5);
+        head.translate(facility.point.x, MARKER_HEIGHT_M + 2.5, toWorldZ(facility.point.y));
+        parts.push(mast, head);
+      }
+      const merged = mergeGeometries(parts, false);
+      parts.forEach((part) => part.dispose());
+      if (!merged) continue;
+      group.add(
+        new THREE.Mesh(
+          merged,
+          new THREE.MeshBasicMaterial({ color: FACILITY_COLOUR[kind], transparent: true, opacity: 0.92 })
+        )
+      );
+    }
+  }, [facilities]);
 
   // Layer visibility.
   useEffect(() => {

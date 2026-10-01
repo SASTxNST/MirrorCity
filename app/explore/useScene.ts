@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { parseOverpass, type OsmScene } from "../../lib/osm";
-import { tilesCovering, tilesToScene, TILEJSON_URL, type DecodedTile, type TileId } from "../../lib/tiles";
+import { tilesCovering, tilesToFacilities, tilesToScene, TILEJSON_URL, type DecodedTile, type Facility, type TileId } from "../../lib/tiles";
 
 export type SceneSource = "tiles" | "overpass";
 export type SceneState = {
   scene: OsmScene | null;
+  /**
+   * Named hospitals, police and fire stations, schools and transit stops from
+   * the tile POI layer. Held separately from the scene so the Overpass upgrade,
+   * which does not query POIs, does not throw them away.
+   */
+  facilities: Facility[];
   source: SceneSource | null;
   /** Set while the detailed pass is still running. */
   upgrading: boolean;
@@ -15,7 +21,7 @@ export type SceneState = {
   baseError: string | null;
 };
 
-const IDLE: SceneState = { scene: null, source: null, upgrading: false, detailError: null, baseError: null };
+const IDLE: SceneState = { scene: null, facilities: [], source: null, upgrading: false, detailError: null, baseError: null };
 
 // The tile URL template carries a build date, so it is read once per session
 // rather than hard-coded.
@@ -73,7 +79,8 @@ export function useScene(lat: number, lon: number, radiusM: number, reloadToken:
         );
         if (signal.aborted) return;
         tileScene = tilesToScene(decoded, origin, radiusM);
-        setState({ scene: tileScene, source: "tiles", upgrading: true, detailError: null, baseError: null });
+        const facilities = tilesToFacilities(decoded, origin, radiusM);
+        setState({ scene: tileScene, facilities, source: "tiles", upgrading: true, detailError: null, baseError: null });
       } catch (error) {
         if (signal.aborted) return;
         setState({ ...IDLE, baseError: (error as Error).message });
@@ -97,7 +104,7 @@ export function useScene(lat: number, lon: number, radiusM: number, reloadToken:
           setState((current) => ({ ...current, upgrading: false }));
           return;
         }
-        setState({ scene: detailed, source: "overpass", upgrading: false, detailError: null, baseError: null });
+        setState((current) => ({ ...current, scene: detailed, source: "overpass", upgrading: false, detailError: null, baseError: null }));
       } catch (error) {
         if (signal.aborted) return;
         const message = (error as Error).name === "AbortError" ? null : (error as Error).message;

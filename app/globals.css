@@ -1921,6 +1921,7 @@ html, body { background: #02071f; color: #f7fbff; }
 .explore-layer i[data-layer="roads"] { background: #8a8a8a; box-shadow: 0 0 0 1px #8a8a8a; }
 .explore-layer i[data-layer="water"] { background: #5f87a0; box-shadow: 0 0 0 1px #5f87a0; }
 .explore-layer i[data-layer="green"] { background: #5f8a6a; box-shadow: 0 0 0 1px #5f8a6a; }
+.explore-layer i[data-layer="facilities"] { background: #e61919; box-shadow: 0 0 0 1px #e61919; }
 .explore-layer.on { color: #eaeaea; border-color: #3a3a3a; background: rgba(255,255,255,.06); }
 .explore-layer.on i { opacity: 1; }
 

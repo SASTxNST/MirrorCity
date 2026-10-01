@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { aqiBand, compass, type Aircraft, type AirReading, type Quake } from "../../lib/live";
 import type { NewsItem } from "../api/live/news/route";
+import type { Camera } from "../api/live/cameras/route";
+import type { Facility } from "../../lib/tiles";
 
-type Props = { lat: number; lon: number; placeName: string; country?: string };
+type Props = { lat: number; lon: number; placeName: string; country?: string; facilities: Facility[] };
 
 // Each feed is polled at the rate it actually changes. OpenSky's anonymous
 // tier resolves to ten seconds; air quality is hourly; the USGS summary feed
 // is rebuilt every minute.
 // GDELT reindexes every fifteen minutes and rate-limits hard, so news is
 // polled on exactly that cadence.
-const POLL_MS = { aircraft: 20_000, quakes: 180_000, air: 600_000, news: 900_000 } as const;
+const POLL_MS = { aircraft: 20_000, quakes: 180_000, air: 600_000, news: 900_000, cameras: 300_000 } as const;
 
 // Half-width of the aircraft query box, and therefore the radius the scope
 // draws to. One degree is roughly 110 km.
@@ -112,7 +114,7 @@ function Scope({ aircraft, centre }: { aircraft: Aircraft[]; centre: { lat: numb
   );
 }
 
-export default function LivePanel({ lat, lon, placeName, country }: Props) {
+export default function LivePanel({ lat, lon, placeName, country, facilities }: Props) {
   const [open, setOpen] = useState(true);
   const query = `lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
 
@@ -122,6 +124,10 @@ export default function LivePanel({ lat, lon, placeName, country }: Props) {
     POLL_MS.aircraft
   );
   const seismic = useFeed<{ nearest: Quake[]; total: number }>(`/api/live/quakes?${query}`, POLL_MS.quakes);
+  const cams = useFeed<{ cameras: Camera[]; nearby?: number; operator?: string; note?: string; region: string | null }>(
+    `/api/live/cameras?${query}&radius=4000`,
+    POLL_MS.cameras
+  );
   const news = useFeed<{ items: NewsItem[]; stale?: boolean }>(
     `/api/live/news?place=${encodeURIComponent(placeName)}${country ? `&country=${country}` : ""}`,
     POLL_MS.news
@@ -132,6 +138,14 @@ export default function LivePanel({ lat, lon, placeName, country }: Props) {
   const aircraft = sky.data?.aircraft ?? [];
   const quakes = seismic.data?.nearest ?? [];
   const stories = news.data?.items ?? [];
+  const cameras = cams.data?.cameras ?? [];
+  // Still frames are cached hard by the operators' CDNs, so each poll needs a
+  // cache-busting parameter or the image never changes.
+  const frameStamp = cams.at ?? 0;
+  const facilityCounts = facilities.reduce<Record<string, number>>((counts, facility) => {
+    counts[facility.kind] = (counts[facility.kind] ?? 0) + 1;
+    return counts;
+  }, {});
   const anyLive = Boolean(reading || aircraft.length || quakes.length || stories.length);
 
   if (!open) {
@@ -200,6 +214,56 @@ export default function LivePanel({ lat, lon, placeName, country }: Props) {
 
       <section className="live-block">
         <p className="live-label">
+          Cameras
+          {cams.data?.operator && <em>{cams.data.operator}</em>}
+        </p>
+        {cams.data?.note ? (
+          <p className="live-note">{cams.data.note}</p>
+        ) : cams.error && cameras.length === 0 ? (
+          <p className="live-note">{cams.error}</p>
+        ) : cameras.length === 0 ? (
+          <p className="live-note">Looking for cameras in range…</p>
+        ) : (
+          <>
+            <div className="live-cams">
+              {cameras.slice(0, 4).map((camera) => (
+                <a key={camera.id} href={camera.videoUrl ?? camera.imageUrl ?? "#"} target="_blank" rel="noreferrer" title={camera.name}>
+                  {camera.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={`${camera.imageUrl}${camera.imageUrl.includes("?") ? "&" : "?"}t=${frameStamp}`} alt={camera.name} loading="lazy" />
+                  ) : (
+                    <span className="live-cam-blank">no still</span>
+                  )}
+                  <b>{camera.name}</b>
+                </a>
+              ))}
+            </div>
+            <p className="live-note">{cams.data?.nearby ?? cameras.length} within 4 km</p>
+          </>
+        )}
+      </section>
+
+      <section className="live-block">
+        <p className="live-label">
+          Facilities
+          <em>{facilities.length} named</em>
+        </p>
+        {facilities.length === 0 ? (
+          <p className="live-note">No named facilities in this area.</p>
+        ) : (
+          <dl className="live-grid">
+            {(["hospital", "police", "fire", "transit"] as const).map((kind) => (
+              <div key={kind}>
+                <dt>{kind === "fire" ? "Fire stn" : kind}</dt>
+                <dd className="c-data">{facilityCounts[kind] ?? 0}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </section>
+
+      <section className="live-block">
+        <p className="live-label">
           Seismic · 24 h
           {seismic.data && <em>{seismic.data.total} worldwide</em>}
         </p>
@@ -241,7 +305,7 @@ export default function LivePanel({ lat, lon, placeName, country }: Props) {
       </section>
 
       <footer className="live-foot">
-        OpenSky · USGS · Open-Meteo · GDELT
+        OpenSky · USGS · Open-Meteo · GDELT · TfL/Caltrans
         {sky.at && <span>· synced {ago(sky.at)}</span>}
       </footer>
     </aside>

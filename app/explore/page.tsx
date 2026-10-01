@@ -13,7 +13,7 @@ import type { GeocodeResult } from "../api/geocode/route";
 type Place = { name: string; detail: string; lat: number; lon: number };
 type Status = { state: "idle" } | { state: "loading"; message: string } | { state: "error"; message: string } | { state: "ready" };
 
-const DEFAULT_LAYERS: WorldLayers = { buildings: true, roads: true, water: true, green: true };
+const DEFAULT_LAYERS: WorldLayers = { buildings: true, roads: true, water: true, green: true, facilities: true };
 
 function formatMetres(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)} km` : `${Math.round(value)} m`;
@@ -57,7 +57,7 @@ export default function ExplorePage() {
   const [hovered, setHovered] = useState<OsmBuilding | null>(null);
   const [loadToken, setLoadToken] = useState(0);
 
-  const { scene, source, upgrading, detailError, baseError } = useScene(place.lat, place.lon, radius, loadToken);
+  const { scene, facilities, source, upgrading, detailError, baseError } = useScene(place.lat, place.lon, radius, loadToken);
   const status: Status = useMemo(
     () =>
       baseError
@@ -228,7 +228,7 @@ export default function ExplorePage() {
                   aria-pressed={layers[key]}
                 >
                   <i data-layer={key} />
-                  <span>{key === "green" ? "parks & land" : key}</span>
+                  <span>{key === "green" ? "parks & land" : key === "facilities" ? "facilities" : key}</span>
                 </button>
               ))}
             </div>
@@ -260,9 +260,9 @@ export default function ExplorePage() {
         </aside>
 
         <main className="explore-stage">
-          <WorldEngine scene={scene} layers={layers} selectedId={selected?.id ?? null} onSelect={setSelected} onHover={setHovered} />
+          <WorldEngine scene={scene} facilities={facilities} layers={layers} selectedId={selected?.id ?? null} onSelect={setSelected} onHover={setHovered} />
 
-          <LivePanel lat={place.lat} lon={place.lon} placeName={place.name} country={start.country} />
+          <LivePanel lat={place.lat} lon={place.lon} placeName={place.name} country={start.country} facilities={facilities} />
 
           {status.state === "loading" && (
             <div className="explore-overlay">
