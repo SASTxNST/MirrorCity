@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import WorldEngine, { type WorldLayers } from "./WorldEngine";
+import LivePanel from "./LivePanel";
 import { parseOverpass, type OsmBuilding, type OsmScene } from "../../lib/osm";
 import { findPlace, PLACES } from "../../lib/places";
 import type { GeocodeResult } from "../api/geocode/route";
@@ -21,23 +22,37 @@ function formatArea(m2: number): string {
   return m2 >= 10_000 ? `${(m2 / 10_000).toFixed(2)} ha` : `${Math.round(m2)} m²`;
 }
 
+// The URL is an external store that the server cannot read: this route is
+// rendered without its query string, so the first client render has to match
+// that and correct itself afterwards. useSyncExternalStore is the one hook
+// that does this without tripping hydration, because it takes a separate
+// server snapshot.
+const NO_OP_SUBSCRIBE = () => () => {};
+const readSearch = () => window.location.search;
+const readServerSearch = () => "";
+
 export default function ExplorePage() {
+  // Onboarding hands the chosen place over as ?place=<id>.
+  const search = useSyncExternalStore(NO_OP_SUBSCRIBE, readSearch, readServerSearch);
+  const start = useMemo(
+    () => findPlace(new URLSearchParams(search).get("place")) ?? PLACES[0],
+    [search]
+  );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Onboarding hands the chosen place over as ?place=<id>; anything else
-  // falls back to the first entry in the shared catalogue.
-  const initial = useMemo(() => {
-    const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("place");
-    return findPlace(requested) ?? PLACES[0];
-  }, []);
-  const [place, setPlace] = useState<Place>({ name: initial.name, detail: initial.region, lat: initial.lat, lon: initial.lon });
-  const [radius, setRadius] = useState(initial.radiusM);
+  const [chosen, setChosen] = useState<Place | null>(null);
+  const [chosenRadius, setChosenRadius] = useState<number | null>(null);
+  const place = useMemo<Place>(
+    () => chosen ?? { name: start.name, detail: start.region, lat: start.lat, lon: start.lon },
+    [chosen, start]
+  );
+  const radius = chosenRadius ?? start.radiusM;
   // The radius the scene was actually built at, so the slider can be moved
   // without silently invalidating the stats beside it.
-  const [loadedRadius, setLoadedRadius] = useState(initial.radiusM);
+  const [loadedRadius, setLoadedRadius] = useState(start.radiusM);
 
   const [scene, setScene] = useState<OsmScene | null>(null);
   const [status, setStatus] = useState<Status>({ state: "idle" });
@@ -48,6 +63,7 @@ export default function ExplorePage() {
 
   const requestRef = useRef(0);
   const [elapsed, setElapsed] = useState(0);
+
 
   // Overpass queues requests behind other users, so a load can sit for tens of
   // seconds through no fault of ours. Counting up says "waiting", not "stuck".
@@ -162,8 +178,8 @@ export default function ExplorePage() {
   }, [scene, status.state]);
 
   const choosePlace = useCallback((next: Place, nextRadius: number) => {
-    setPlace(next);
-    setRadius(nextRadius);
+    setChosen(next);
+    setChosenRadius(nextRadius);
     setQuery("");
     setResults([]);
   }, []);
@@ -240,7 +256,7 @@ export default function ExplorePage() {
               max={1500}
               step={50}
               value={radius}
-              onChange={(event) => setRadius(Number(event.target.value))}
+              onChange={(event) => setChosenRadius(Number(event.target.value))}
               aria-label="Scene radius in metres"
             />
             <p className="explore-hint">
@@ -295,6 +311,8 @@ export default function ExplorePage() {
 
         <main className="explore-stage">
           <WorldEngine scene={scene} layers={layers} selectedId={selected?.id ?? null} onSelect={setSelected} onHover={setHovered} />
+
+          <LivePanel lat={place.lat} lon={place.lon} placeName={place.name} />
 
           {status.state === "loading" && (
             <div className="explore-overlay">

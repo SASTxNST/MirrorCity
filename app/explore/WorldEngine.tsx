@@ -22,16 +22,16 @@ function toWorldZ(y: number): number {
 }
 
 const ROAD_STYLE = {
-  major: { colour: 0x47578a, y: 0.34 },
-  minor: { colour: 0x36446f, y: 0.26 },
-  path: { colour: 0x2c3860, y: 0.18 },
-  rail: { colour: 0x6a6480, y: 0.4 },
+  major: { colour: 0x4a4a4a, y: 0.34 },
+  minor: { colour: 0x343434, y: 0.26 },
+  path: { colour: 0x282828, y: 0.18 },
+  rail: { colour: 0x5a5248, y: 0.4 },
 } as const;
 
-// Height ramps from deep navy to the workspace's electric blue, so relative
-// height is legible without a legend and the scene stays in the app's palette.
-const LOW = new THREE.Color(0x1d3266);
-const HIGH = new THREE.Color(0x93b4ff);
+// Height ramps from near-substrate grey to white phosphor, so relative height
+// is legible without a legend and the scene stays monochrome.
+const LOW = new THREE.Color(0x2b2b2b);
+const HIGH = new THREE.Color(0xe8e8e8);
 
 function heightColour(heightM: number): THREE.Color {
   // Log ramp: most cities are 3–20 m, so a linear ramp would leave almost
@@ -171,8 +171,8 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     renderer.domElement.setAttribute("aria-label", "3D map of the loaded area");
 
     const world = new THREE.Scene();
-    world.background = new THREE.Color(0x071330);
-    world.fog = new THREE.Fog(0x071330, 900, 3400);
+    world.background = new THREE.Color(0x0a0a0a);
+    world.fog = new THREE.Fog(0x0a0a0a, 900, 3400);
 
     const camera = new THREE.PerspectiveCamera(48, (mount.clientWidth || 1) / (mount.clientHeight || 1), 1, 30_000);
     camera.position.set(420, 340, 420);
@@ -184,11 +184,11 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     controls.minDistance = 25;
     controls.maxDistance = 6000;
 
-    world.add(new THREE.HemisphereLight(0xc6d6ff, 0x0a1430, 1.5));
-    const sun = new THREE.DirectionalLight(0xfff0d2, 1.6);
+    world.add(new THREE.HemisphereLight(0xd8d8d8, 0x0b0b0b, 1.55));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
     sun.position.set(-600, 900, 420);
     world.add(sun);
-    const fill = new THREE.DirectionalLight(0x5d7bd6, 0.55);
+    const fill = new THREE.DirectionalLight(0x8a8a8a, 0.5);
     fill.position.set(500, 300, -500);
     world.add(fill);
 
@@ -260,7 +260,7 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     // extent is shown rather than implied.
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(radius * 2, radius * 2).rotateX(-Math.PI / 2),
-      new THREE.MeshLambertMaterial({ color: 0x0b1735 })
+      new THREE.MeshLambertMaterial({ color: 0x111111 })
     );
     ground.position.y = -0.05;
     core.layerGroups.roads.add(ground);
@@ -271,7 +271,7 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
         new THREE.Vector3(radius, 0.5, radius),
         new THREE.Vector3(-radius, 0.5, radius),
       ]),
-      new THREE.LineBasicMaterial({ color: 0xf6c189, transparent: true, opacity: 0.3 })
+      new THREE.LineBasicMaterial({ color: 0xe61919, transparent: true, opacity: 0.45 })
     );
     core.layerGroups.roads.add(edge);
 
@@ -289,7 +289,7 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
         new THREE.Mesh(
           merged,
           new THREE.MeshLambertMaterial({
-            color: kind === "water" ? 0x15476b : 0x1d4436,
+            color: kind === "water" ? 0x2f4652 : 0x33402f,
             transparent: true,
             opacity: kind === "water" ? 0.92 : 0.8,
           })
@@ -379,7 +379,7 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     core.controls.minDistance = Math.max(12, radius / 40);
     core.controls.maxDistance = radius * 8;
     core.controls.update();
-    core.scene.fog = new THREE.Fog(0x071330, radius * 1.4, radius * 5);
+    core.scene.fog = new THREE.Fog(0x0a0a0a, radius * 1.4, radius * 5);
   }, [scene]);
 
   // Layer visibility.
@@ -411,13 +411,13 @@ export default function WorldEngine({ scene, layers, selectedId, onSelect, onHov
     core.highlight.add(
       new THREE.Mesh(
         geometry,
-        new THREE.MeshLambertMaterial({ color: 0xf6c189, emissive: 0x6d4a1c, transparent: true, opacity: 0.96 })
+        new THREE.MeshLambertMaterial({ color: 0xe61919, emissive: 0x4a0808, transparent: true, opacity: 0.96 })
       )
     );
     core.highlight.add(
       new THREE.LineSegments(
         new THREE.EdgesGeometry(geometry, 24),
-        new THREE.LineBasicMaterial({ color: 0xffe6c2 })
+        new THREE.LineBasicMaterial({ color: 0xff8080 })
       )
     );
   }, [selectedId, scene]);
