@@ -2,9 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { parseOverpass, type OsmScene } from "../../lib/osm";
-import { tilesCovering, tilesToFacilities, tilesToScene, TILEJSON_URL, type DecodedTile, type Facility, type TileId } from "../../lib/tiles";
+import {
+  tilesCovering,
+  tilesToFacilities,
+  tilesToScene,
+  TILEJSON_URL,
+  type DecodedTile,
+  type Facility,
+  type SceneDetail,
+  type TileId,
+} from "../../lib/tiles";
 
 export type SceneSource = "tiles" | "overpass";
+/**
+ * Overpass runs a live query per request and already struggles with a 700 m
+ * box, so the detail pass is only attempted for small scenes. Wider views are
+ * tiles only, which is what makes them possible at all.
+ */
+export const DETAIL_PASS_MAX_RADIUS_M = 1500;
+
+// 100 tiles at a 10 km radius. They are small and CDN-served, so the batch is
+// wide enough to keep a city-scale load to a few seconds without opening a
+// hundred sockets at once.
+const TILE_CONCURRENCY = 25;
+
 export type SceneState = {
   scene: OsmScene | null;
   /**
@@ -19,9 +40,19 @@ export type SceneState = {
   /** Why the detailed pass did not land, if it did not. */
   detailError: string | null;
   baseError: string | null;
+  /** What the distance-based detail limit left out, for the UI to disclose. */
+  detail: SceneDetail;
 };
 
-const IDLE: SceneState = { scene: null, facilities: [], source: null, upgrading: false, detailError: null, baseError: null };
+const IDLE: SceneState = {
+  scene: null,
+  facilities: [],
+  source: null,
+  upgrading: false,
+  detailError: null,
+  baseError: null,
+  detail: { buildingsDropped: 0, roadsDropped: 0 },
+};
 
 // The tile URL template carries a build date, so it is read once per session
 // rather than hard-coded.
@@ -74,16 +105,34 @@ export function useScene(lat: number, lon: number, radiusM: number, reloadToken:
       try {
         const template = await tileTemplate();
         const tiles = tilesCovering(origin, radiusM);
-        const decoded = (await Promise.all(tiles.map((tile) => decodeTile(template, tile, signal)))).filter(
-          (entry): entry is { tile: TileId; data: DecodedTile } => entry !== null
-        );
-        if (signal.aborted) return;
-        tileScene = tilesToScene(decoded, origin, radiusM);
+
+        const decoded: Array<{ tile: TileId; data: DecodedTile }> = [];
+        for (let start = 0; start < tiles.length; start += TILE_CONCURRENCY) {
+          const batch = await Promise.all(
+            tiles.slice(start, start + TILE_CONCURRENCY).map((tile) => decodeTile(template, tile, signal))
+          );
+          if (signal.aborted) return;
+          for (const entry of batch) if (entry) decoded.push(entry);
+        }
+
+        const detail: SceneDetail = { buildingsDropped: 0, roadsDropped: 0 };
+        tileScene = tilesToScene(decoded, origin, radiusM, detail);
         const facilities = tilesToFacilities(decoded, origin, radiusM);
-        setState({ scene: tileScene, facilities, source: "tiles", upgrading: true, detailError: null, baseError: null });
+        const wantsDetailPass = radiusM <= DETAIL_PASS_MAX_RADIUS_M;
+        setState({
+          scene: tileScene,
+          facilities,
+          source: "tiles",
+          upgrading: wantsDetailPass,
+          detailError: null,
+          baseError: null,
+          detail,
+        });
+        if (!wantsDetailPass) return;
       } catch (error) {
         if (signal.aborted) return;
         setState({ ...IDLE, baseError: (error as Error).message });
+        return;
       }
 
       // Stage two: Overpass, for the detail the tiles generalise away.

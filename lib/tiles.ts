@@ -16,6 +16,40 @@ import { clipPolyline, clipRing, type OsmArea, type OsmBuilding, type OsmRoad, t
 
 export type TileId = { z: number; x: number; y: number };
 
+/**
+ * How much of a wide scene to actually draw.
+ *
+ * A 10 km view holds about 126,000 building footprints, which is roughly
+ * 400 MB of GPU geometry and more than a browser will hold. Most of them are
+ * houses a few metres across that cover less than a pixel at that distance, so
+ * detail is dropped by distance from the centre: everything near you, only
+ * substantial structures far away. The scene reports what it dropped so the UI
+ * can say so rather than quietly showing a thinner city.
+ */
+export type DetailBand = { beyondM: number; minFootprintM2: number };
+
+export const DETAIL_BANDS: DetailBand[] = [
+  { beyondM: 1500, minFootprintM2: 0 },
+  { beyondM: 4000, minFootprintM2: 150 },
+  { beyondM: 7000, minFootprintM2: 400 },
+  { beyondM: Infinity, minFootprintM2: 900 },
+];
+
+// Minor roads and footpaths stop being legible well before buildings do.
+const ROAD_DETAIL_LIMIT_M: Record<RoadClass, number> = {
+  major: Infinity,
+  minor: 4000,
+  path: 2000,
+  rail: Infinity,
+};
+
+function minFootprintAt(distanceM: number): number {
+  for (const band of DETAIL_BANDS) if (distanceM <= band.beyondM) return band.minFootprintM2;
+  return DETAIL_BANDS[DETAIL_BANDS.length - 1].minFootprintM2;
+}
+
+export type SceneDetail = { buildingsDropped: number; roadsDropped: number };
+
 // OpenFreeMap serves the planet free, with no key and no referrer rules. The
 // path carries a build date, so the template is read from its TileJSON rather
 // than hard-coded here.
@@ -112,8 +146,10 @@ function isHole(ring: Vec2[]): boolean {
 export function tilesToScene(
   decoded: Array<{ tile: TileId; data: DecodedTile }>,
   origin: LatLng,
-  radiusM: number
+  radiusM: number,
+  detail?: SceneDetail
 ): OsmScene {
+  const dropped = detail ?? { buildingsDropped: 0, roadsDropped: 0 };
   const scene: OsmScene = { origin, radiusM, buildings: [], roads: [], areas: [] };
   const box = { minX: -radiusM, maxX: radiusM, minY: -radiusM, maxY: radiusM };
 
@@ -140,6 +176,14 @@ export function tilesToScene(
         outer.forEach((raw, index) => {
           const ring = clipRing(raw, box);
           if (ring.length < 3) return;
+          const centre = centroid(ring);
+          const footprint = Math.abs(signedArea(ring));
+          // Chebyshev distance, matching the square the scene is clipped to.
+          const away = Math.max(Math.abs(centre.x), Math.abs(centre.y));
+          if (footprint < minFootprintAt(away)) {
+            dropped.buildingsDropped++;
+            return;
+          }
           scene.buildings.push({
             id: `tile/${key}/b${i}${outer.length > 1 ? `#${index}` : ""}`,
             name: null,
@@ -149,8 +193,8 @@ export function tilesToScene(
             heightSource: surveyed ? "tag" : "assumed",
             ring,
             holes: index === 0 ? holes : [],
-            centre: centroid(ring),
-            footprintM2: Math.abs(signedArea(ring)),
+            centre,
+            footprintM2: footprint,
             tags: { source: "openfreemap", ...(surveyed ? { height: String(tagged) } : {}) },
           });
         });
@@ -169,6 +213,13 @@ export function tilesToScene(
         for (const [part, line] of feature.loadGeometry().entries()) {
           const points = ringToVec2(line, tile, extent, origin);
           for (const [run, clipped] of clipPolyline(points, box).entries()) {
+            const away = Math.max(
+              ...clipped.map((point) => Math.max(Math.abs(point.x), Math.abs(point.y)))
+            );
+            if (away > ROAD_DETAIL_LIMIT_M[kind]) {
+              dropped.roadsDropped++;
+              continue;
+            }
             scene.roads.push({
               id: `tile/${key}/r${i}-${part}-${run}`,
               name: typeof feature.properties.name === "string" ? feature.properties.name : null,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { lonLatToTile, tilesCovering, tilesToScene } from "../lib/tiles.ts";
+import { metresPerDegree } from "../lib/geo.ts";
 
 const DELHI = { lat: 28.6318, lon: 77.2194 };
 const EXTENT = 4096;
@@ -176,4 +177,74 @@ test("points and unknown geometry types are ignored", () => {
     700
   );
   assert.equal(scene.buildings.length, 0);
+});
+
+test("detail bands: everything near the centre, only substantial buildings far out", () => {
+  const scale = metresPerDegree(DELHI.lat);
+  // Tile pixels per metre at this zoom and latitude.
+  const metresPerPx = (() => {
+    const a = lonLatToTile(DELHI, 14);
+    const b = lonLatToTile({ lat: DELHI.lat, lon: DELHI.lon + 1 / scale.lon }, 14);
+    return 1 / ((b.x - a.x) * EXTENT);
+  })();
+  const atMetres = (east) => CENTRE_PX.x + east / metresPerPx;
+
+  // A 10 m square (100 m²) and a 40 m square (1600 m²) at several distances.
+  const small = (east) => polygon(square(atMetres(east), CENTRE_PX.y, 10 / metresPerPx), { render_height: 9 });
+  const large = (east) => polygon(square(atMetres(east), CENTRE_PX.y, 40 / metresPerPx), { render_height: 9 });
+
+  const detail = { buildingsDropped: 0, roadsDropped: 0 };
+  const scene = tilesToScene(
+    [{ tile: TILE, data: { layers: { building: layer([
+      small(500), large(500),      // inside 1.5 km: both kept
+      small(3000), large(3000),    // 1.5-4 km: needs 150 m², so only the large one
+      small(9000), large(9000),    // beyond 7 km: needs 900 m², so only the large one
+    ]) } } }],
+    DELHI,
+    10_000,
+    detail
+  );
+
+  assert.equal(scene.buildings.length, 4, "both near, then one in each far band");
+  assert.equal(detail.buildingsDropped, 2);
+  const kept = scene.buildings.map((b) => Math.round(Math.sqrt(b.footprintM2)));
+  assert.deepEqual(kept.filter((side) => side < 20).length, 1, "only the near small building survives");
+});
+
+test("detail bands: minor roads and paths stop before the edge of a wide scene", () => {
+  const scale = metresPerDegree(DELHI.lat);
+  const metresPerPx = (() => {
+    const a = lonLatToTile(DELHI, 14);
+    const b = lonLatToTile({ lat: DELHI.lat, lon: DELHI.lon + 1 / scale.lon }, 14);
+    return 1 / ((b.x - a.x) * EXTENT);
+  })();
+  const at = (east) => CENTRE_PX.x + east / metresPerPx;
+  const segment = (east, cls) =>
+    line([{ x: at(east), y: CENTRE_PX.y }, { x: at(east + 100), y: CENTRE_PX.y }], { class: cls });
+
+  const detail = { buildingsDropped: 0, roadsDropped: 0 };
+  const scene = tilesToScene(
+    [{ tile: TILE, data: { layers: { transportation: layer([
+      segment(500, "path"), segment(500, "minor"), segment(500, "motorway"),
+      segment(6000, "path"), segment(6000, "minor"), segment(6000, "motorway"),
+    ]) } } }],
+    DELHI,
+    10_000,
+    detail
+  );
+
+  const kinds = scene.roads.map((r) => r.kind).sort();
+  assert.deepEqual(kinds, ["major", "major", "minor", "path"], "a motorway carries to the edge; a path does not");
+  assert.equal(detail.roadsDropped, 2);
+});
+
+test("a scene inside the near band drops nothing", () => {
+  const detail = { buildingsDropped: 0, roadsDropped: 0 };
+  tilesToScene(
+    [{ tile: TILE, data: { layers: { building: layer([polygon(square(CENTRE_PX.x, CENTRE_PX.y, 6), { render_height: 9 })]) } } }],
+    DELHI,
+    700,
+    detail
+  );
+  assert.deepEqual(detail, { buildingsDropped: 0, roadsDropped: 0 });
 });

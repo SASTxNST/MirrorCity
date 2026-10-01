@@ -363,6 +363,9 @@ export default function WorldEngine({ scene, facilities, layers, selectedId, onS
         colours[i * 3 + 2] = tone.b * shade;
       }
       geometry.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+      // Nothing here is textured, and at a 10 km radius the UVs alone are tens
+      // of megabytes of GPU memory.
+      geometry.deleteAttribute("uv");
       geometry.clearGroups();
 
       faceStarts.push(triangles);

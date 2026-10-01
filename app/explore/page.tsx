@@ -5,7 +5,7 @@ import Link from "next/link";
 import WorldEngine, { type WorldLayers } from "./WorldEngine";
 import LivePanel from "./LivePanel";
 import type { OsmBuilding } from "../../lib/osm";
-import { useScene } from "./useScene";
+import { DETAIL_PASS_MAX_RADIUS_M, useScene } from "./useScene";
 import { findPlace, PLACES } from "../../lib/places";
 import type { GeocodeResult } from "../api/geocode/route";
 
@@ -57,7 +57,7 @@ export default function ExplorePage() {
   const [hovered, setHovered] = useState<OsmBuilding | null>(null);
   const [loadToken, setLoadToken] = useState(0);
 
-  const { scene, facilities, source, upgrading, detailError, baseError } = useScene(place.lat, place.lon, radius, loadToken);
+  const { scene, facilities, source, upgrading, detailError, baseError, detail } = useScene(place.lat, place.lon, radius, loadToken);
   const status: Status = useMemo(
     () =>
       baseError
@@ -202,18 +202,28 @@ export default function ExplorePage() {
             <p className="explore-label">Radius <b>{formatMetres(radius)}</b></p>
             <input
               type="range"
-              min={100}
-              max={1500}
-              step={50}
+              min={250}
+              max={10000}
+              step={250}
               value={radius}
               onChange={(event) => setChosenRadius(Number(event.target.value))}
               aria-label="Scene radius in metres"
             />
+            <div className="explore-radius-marks" aria-hidden="true">
+              <span>250 m</span><span>5 km</span><span>10 km</span>
+            </div>
             <p className="explore-hint">
-              {radius > 900
-                ? "Large areas take longer to fetch and draw."
-                : "A tighter radius loads faster and keeps detail crisp."}
+              {radius > DETAIL_PASS_MAX_RADIUS_M
+                ? "Beyond 1.5 km the scene is built from tiles alone: Overpass cannot answer a query this wide."
+                : "At this size the tiles are replaced by full-detail geometry, with names and tags."}
             </p>
+            {detail.buildingsDropped > 0 && (
+              <p className="explore-hint">
+                {detail.buildingsDropped.toLocaleString()} small buildings
+                {detail.roadsDropped > 0 ? ` and ${detail.roadsDropped.toLocaleString()} minor roads` : ""} are left
+                out past 1.5 km, where they would be smaller than a pixel.
+              </p>
+            )}
           </section>
 
           <section className="explore-section">
