@@ -20,6 +20,8 @@
     "grid:test": "python3 -m scripts.grid.validation"
   },
   "dependencies": {
+    "@clerk/backend": "^3.21.1",
+    "@clerk/clerk-react": "^5.61.10",
     "3d-tiles-renderer": "0.5.3",
     "drizzle-orm": "0.45.2",
     "pyodide": "314.0.7",

@@ -49,6 +49,10 @@ export default defineConfig(async ({ command }) => {
       : undefined,
     // Pyodide only runs in module workers (Vite's default build format is classic).
     worker: { format: "es" as const },
+    // Clerk's React SDK pulls its own React resolution through Vite's
+    // pre-bundling; without deduping, the client gets a second React copy and
+    // every hook inside <ClerkProvider> throws "Invalid hook call".
+    resolve: { dedupe: ["react", "react-dom", "@clerk/clerk-react"] },
     plugins: [
       vinext(),
       sites(),

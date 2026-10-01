@@ -1,0 +1,174 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   MirrorCity console — tactical telemetry.
+
+   Matte black substrate, white phosphor text, one hazard red. Every corner is
+   90 degrees; no radius, no gradient fills, no soft shadows. Structure comes
+   from 1px rules, not from cards floating on a surface.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.console {
+  --c-bg: #0a0a0a;
+  --c-surface: #0f0f0f;
+  --c-raised: #141414;
+  --c-line: #232323;
+  --c-line-bright: #3a3a3a;
+  --c-ink: #eaeaea;
+  --c-muted: #7c7c7c;
+  --c-dim: #525252;
+  --c-red: #e61919;
+  --c-green: #4af626;
+
+  --c-mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --c-sans: var(--font-inter), Inter, system-ui, sans-serif;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-family: var(--c-sans);
+}
+
+.console *,
+.console *::before,
+.console *::after { border-radius: 0 !important; box-sizing: border-box; }
+
+/* Faint scanline wash over the whole shell: enough to read as a phosphor
+   display, not enough to interfere with text. */
+.console::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0, 0, 0, .22) 2px 4px);
+  opacity: .5;
+}
+
+/* ─── Type ────────────────────────────────────────────────────────────────── */
+
+.c-macro { margin: 0; font-weight: 800; letter-spacing: -.045em; line-height: .9; text-transform: uppercase; }
+.c-micro { font-family: var(--c-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--c-muted); }
+.c-micro-dim { font-family: var(--c-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--c-dim); }
+.c-data { font-family: var(--c-mono); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.c-red { color: var(--c-red); }
+
+/* ─── Frame ───────────────────────────────────────────────────────────────── */
+
+.c-rule { height: 1px; border: 0; margin: 0; background: var(--c-line); }
+
+.c-bar {
+  height: 52px; flex: none;
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid var(--c-line);
+  background: var(--c-bg);
+}
+.c-bar-cell { height: 100%; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-right: 1px solid var(--c-line); }
+.c-bar-cell:last-child { border-right: 0; border-left: 1px solid var(--c-line); margin-left: auto; }
+
+.c-mark { display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
+.c-mark b { font-size: 13px; font-weight: 800; letter-spacing: .14em; }
+.c-mark b span { color: var(--c-dim); }
+.c-mark i { width: 11px; height: 11px; display: block; border: 2px solid var(--c-ink); }
+
+/* Live indicator: the one place terminal green is allowed. */
+.c-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--c-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--c-muted); }
+.c-live i { width: 6px; height: 6px; background: var(--c-green); box-shadow: 0 0 6px var(--c-green); animation: cPulse 2s steps(2) infinite; }
+.c-live.off i { background: var(--c-dim); box-shadow: none; animation: none; }
+@keyframes cPulse { 50% { opacity: .25; } }
+
+/* ─── Controls ────────────────────────────────────────────────────────────── */
+
+.c-btn {
+  height: 42px; padding: 0 22px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  border: 1px solid var(--c-line-bright);
+  background: transparent; color: var(--c-ink);
+  font-family: var(--c-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  text-decoration: none; cursor: pointer; transition: background .12s, border-color .12s;
+}
+.c-btn:hover { background: var(--c-raised); border-color: var(--c-ink); }
+.c-btn:disabled { opacity: .35; cursor: not-allowed; }
+.c-btn.primary { background: var(--c-ink); border-color: var(--c-ink); color: #000; font-weight: 700; }
+.c-btn.primary:hover { background: #fff; }
+.c-btn.ghost { border-color: var(--c-line); color: var(--c-muted); }
+.c-btn.ghost:hover { color: var(--c-ink); border-color: var(--c-line-bright); background: transparent; }
+
+/* Chips: the onboarding's only input. Square, bordered, selected = inverted. */
+.c-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.c-chip {
+  padding: 11px 16px;
+  display: inline-flex; align-items: center; gap: 9px;
+  border: 1px solid var(--c-line-bright);
+  background: transparent; color: var(--c-muted);
+  font-family: var(--c-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  cursor: pointer; transition: color .12s, border-color .12s, background .12s;
+}
+.c-chip:hover { color: var(--c-ink); border-color: var(--c-ink); }
+.c-chip[aria-pressed="true"] { background: var(--c-ink); border-color: var(--c-ink); color: #000; font-weight: 700; }
+.c-chip small { font-family: var(--c-mono); font-size: 9px; letter-spacing: .1em; color: var(--c-dim); text-transform: none; }
+.c-chip[aria-pressed="true"] small { color: #444; }
+
+.c-field { width: 100%; height: 44px; padding: 0 14px; border: 1px solid var(--c-line-bright); background: var(--c-surface); color: var(--c-ink); font-family: var(--c-mono); font-size: 12px; letter-spacing: .04em; }
+.c-field::placeholder { color: var(--c-dim); text-transform: none; letter-spacing: .02em; }
+.c-field:focus { outline: none; border-color: var(--c-ink); }
+
+/* ─── Gate: welcome, sign-in, onboarding ──────────────────────────────────── */
+
+.c-gate { position: absolute; inset: 0; display: grid; grid-template-rows: 52px 1fr 34px; }
+.c-gate-body { min-height: 0; display: grid; grid-template-columns: 1fr minmax(0, 620px) 1fr; }
+.c-gate-body > aside { border-right: 1px solid var(--c-line); }
+.c-gate-body > aside:last-child { border-right: 0; border-left: 1px solid var(--c-line); }
+.c-gate-main { min-width: 0; overflow-y: auto; padding: 56px 44px; display: flex; flex-direction: column; justify-content: center; }
+
+/* Crosshair field in the empty side columns: structure, not decoration. */
+.c-grid-field {
+  background-image:
+    linear-gradient(to right, var(--c-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--c-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  opacity: .5;
+}
+
+.c-step-head { margin-bottom: 36px; }
+.c-step-index { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.c-step-index span { font-family: var(--c-mono); font-size: 10px; letter-spacing: .14em; color: var(--c-dim); }
+.c-step-index b { flex: 1; height: 1px; background: var(--c-line); }
+.c-step-head h1 { margin: 0 0 14px; font-size: clamp(2.4rem, 5.5vw, 4rem); font-weight: 800; letter-spacing: -.045em; line-height: .92; text-transform: uppercase; }
+.c-step-head h1 em { font-style: normal; color: var(--c-dim); }
+.c-step-head p { margin: 0; max-width: 46ch; font-size: 14px; line-height: 1.6; color: var(--c-muted); }
+
+.c-step-foot { margin-top: 38px; padding-top: 22px; border-top: 1px solid var(--c-line); display: flex; align-items: center; gap: 12px; }
+.c-step-foot .c-micro { margin-right: auto; }
+
+.c-progress { display: flex; gap: 3px; }
+.c-progress i { width: 26px; height: 3px; background: var(--c-line-bright); }
+.c-progress i.on { background: var(--c-ink); }
+
+.c-statusbar { display: flex; align-items: center; gap: 0; border-top: 1px solid var(--c-line); background: var(--c-bg); }
+.c-statusbar span { padding: 0 16px; line-height: 33px; border-right: 1px solid var(--c-line); font-family: var(--c-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--c-dim); }
+.c-statusbar span:last-child { border-right: 0; margin-left: auto; border-left: 1px solid var(--c-line); }
+
+/* Place cards in the final onboarding step. */
+.c-places { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 1px; background: var(--c-line); border: 1px solid var(--c-line); }
+.c-place { padding: 18px 16px; min-height: 112px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 0; background: var(--c-bg); color: var(--c-muted); text-align: left; cursor: pointer; transition: background .12s, color .12s; }
+.c-place:hover { background: var(--c-raised); color: var(--c-ink); }
+.c-place[aria-pressed="true"] { background: var(--c-ink); color: #000; }
+.c-place b { font-size: 15px; font-weight: 700; letter-spacing: -.02em; text-transform: uppercase; line-height: 1.1; }
+.c-place small { font-family: var(--c-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--c-dim); }
+.c-place[aria-pressed="true"] small { color: #3a3a3a; }
+.c-place u { margin-top: auto; font-family: var(--c-mono); font-size: 9px; letter-spacing: .1em; text-decoration: none; color: var(--c-dim); }
+.c-place[aria-pressed="true"] u { color: #3a3a3a; }
+
+.c-error { margin-top: 18px; padding: 12px 14px; border-left: 2px solid var(--c-red); background: var(--c-surface); font-family: var(--c-mono); font-size: 11px; letter-spacing: .04em; color: #ffb3b3; }
+
+.boot-error { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; background: #0a0a0a; color: #eaeaea; font-family: ui-monospace, Menlo, monospace; text-align: center; }
+.boot-error h1 { margin: 0; font-size: 18px; letter-spacing: .1em; text-transform: uppercase; }
+.boot-error p { margin: 0; color: #7c7c7c; font-size: 13px; line-height: 1.7; }
+.boot-error code { color: #eaeaea; }
+
+@media (max-width: 900px) {
+  .c-gate-body { grid-template-columns: 1fr; }
+  .c-gate-body > aside { display: none; }
+  .c-gate-main { padding: 32px 20px; }
+}

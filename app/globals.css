@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./console.css";
 
 :root {
   --ink: #e8ece8;

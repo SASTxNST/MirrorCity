@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import Providers from "./providers";
 import { headers } from "next/headers";
-import { Inter, Sora } from "next/font/google";
+import { Inter, JetBrains_Mono, Sora } from "next/font/google";
 import "./globals.css";
 
 const sora = Sora({ variable: "--font-sora", subsets: ["latin"] });
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
+const mono = JetBrains_Mono({ variable: "--font-mono", subsets: ["latin"] });
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -32,5 +34,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${sora.variable} ${inter.variable}`}>{children}</body></html>;
+  return (
+    <html lang="en">
+      <body className={`${sora.variable} ${inter.variable} ${mono.variable}`}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
 }

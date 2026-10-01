@@ -4,16 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import WorldEngine, { type WorldLayers } from "./WorldEngine";
 import { parseOverpass, type OsmBuilding, type OsmScene } from "../../lib/osm";
+import { findPlace, PLACES } from "../../lib/places";
 import type { GeocodeResult } from "../api/geocode/route";
 
-// Places that show the range of what the loader handles: a planned campus, a
-// colonial-plan commercial core, a monument precinct, and a dense old city.
-const PRESETS = [
-  { name: "Rishihood University", detail: "Sonipat, Haryana", lat: 28.9832, lon: 77.0908, radiusM: 600 },
-  { name: "Connaught Place", detail: "New Delhi", lat: 28.6318, lon: 77.2194, radiusM: 700 },
-  { name: "IIT Hyderabad", detail: "Kandi, Telangana", lat: 17.5923, lon: 78.1222, radiusM: 900 },
-  { name: "Banaras Ghats", detail: "Varanasi", lat: 25.3066, lon: 83.0103, radiusM: 500 },
-];
 
 type Place = { name: string; detail: string; lat: number; lon: number };
 type Status = { state: "idle" } | { state: "loading"; message: string } | { state: "error"; message: string } | { state: "ready" };
@@ -34,11 +27,17 @@ export default function ExplorePage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const [place, setPlace] = useState<Place>({ name: PRESETS[0].name, detail: PRESETS[0].detail, lat: PRESETS[0].lat, lon: PRESETS[0].lon });
-  const [radius, setRadius] = useState(PRESETS[0].radiusM);
+  // Onboarding hands the chosen place over as ?place=<id>; anything else
+  // falls back to the first entry in the shared catalogue.
+  const initial = useMemo(() => {
+    const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("place");
+    return findPlace(requested) ?? PLACES[0];
+  }, []);
+  const [place, setPlace] = useState<Place>({ name: initial.name, detail: initial.region, lat: initial.lat, lon: initial.lon });
+  const [radius, setRadius] = useState(initial.radiusM);
   // The radius the scene was actually built at, so the slider can be moved
   // without silently invalidating the stats beside it.
-  const [loadedRadius, setLoadedRadius] = useState(PRESETS[0].radiusM);
+  const [loadedRadius, setLoadedRadius] = useState(initial.radiusM);
 
   const [scene, setScene] = useState<OsmScene | null>(null);
   const [status, setStatus] = useState<Status>({ state: "idle" });
@@ -219,15 +218,15 @@ export default function ExplorePage() {
           <section className="explore-section">
             <p className="explore-label">Jump to</p>
             <div className="explore-presets">
-              {PRESETS.map((preset) => (
+              {PLACES.map((entry) => (
                 <button
-                  key={preset.name}
+                  key={entry.id}
                   type="button"
-                  className={place.lat === preset.lat && place.lon === preset.lon ? "active" : ""}
-                  onClick={() => choosePlace(preset, preset.radiusM)}
+                  className={place.lat === entry.lat && place.lon === entry.lon ? "active" : ""}
+                  onClick={() => choosePlace({ name: entry.name, detail: entry.region, lat: entry.lat, lon: entry.lon }, entry.radiusM)}
                 >
-                  <strong>{preset.name}</strong>
-                  <small>{preset.detail}</small>
+                  <strong>{entry.name}</strong>
+                  <small>{entry.region}</small>
                 </button>
               ))}
             </div>
