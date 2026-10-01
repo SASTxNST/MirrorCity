@@ -31,6 +31,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 .dev.vars
+# ...but the templates document what to set, and hold no real keys
+!.env.example
+!.dev.vars.example
 
 # vercel
 .vercel
