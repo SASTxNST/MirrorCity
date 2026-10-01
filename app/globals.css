@@ -1975,3 +1975,7 @@ html, body { background: #02071f; color: #f7fbff; }
   .explore-body { grid-template-columns: 1fr; }
   .explore-panel { display: none; }
 }
+.explore-upgrading { font-style: normal; color: #7c7c7c; }
+.explore-detail-note { position: absolute; left: 50%; bottom: 68px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 12px; max-width: 620px; padding: 10px 14px; border: 1px solid #2e2e2e; border-left: 2px solid #e61919; background: rgba(10,10,10,.95); font: 500 10px var(--font-mono), monospace; letter-spacing: .04em; color: #a8a8a8; }
+.explore-detail-note button { padding: 5px 10px; border: 1px solid #3a3a3a; background: transparent; color: #eaeaea; font: inherit; text-transform: uppercase; letter-spacing: .1em; cursor: pointer; }
+.explore-detail-note button:hover { border-color: #eaeaea; }

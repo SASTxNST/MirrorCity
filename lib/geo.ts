@@ -57,7 +57,8 @@ export function distanceM(a: LatLng, b: LatLng): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// Signed area of a projected ring, in m². Positive means counter-clockwise.
+// Signed area of a projected ring, in m². Positive means clockwise, since
+// projected coordinates put north at +y.
 export function signedArea(ring: Vec2[]): number {
   let total = 0;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {

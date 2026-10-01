@@ -15,6 +15,8 @@ export type Place = {
   radiusM: number;
   /** Why this place is worth opening first. */
   note: string;
+  /** ISO 3166-1 alpha-2, used to bias the news feed to local outlets. */
+  country: string;
 };
 
 export const PLACES: Place[] = [
@@ -26,6 +28,7 @@ export const PLACES: Place[] = [
     lon: 77.2194,
     radiusM: 700,
     note: "Radial colonial plan, 450+ buildings",
+    country: "IN",
   },
   {
     id: "charminar",
@@ -35,6 +38,7 @@ export const PLACES: Place[] = [
     lon: 78.4746,
     radiusM: 400,
     note: "Dense old city around the monument",
+    country: "IN",
   },
   {
     id: "fort-mumbai",
@@ -44,6 +48,7 @@ export const PLACES: Place[] = [
     lon: 72.8354,
     radiusM: 700,
     note: "Heritage core at CSMT",
+    country: "IN",
   },
   {
     id: "mg-road-bengaluru",
@@ -53,6 +58,7 @@ export const PLACES: Place[] = [
     lon: 77.6068,
     radiusM: 700,
     note: "Central business district",
+    country: "IN",
   },
   {
     id: "park-street-kolkata",
@@ -62,6 +68,7 @@ export const PLACES: Place[] = [
     lon: 88.3501,
     radiusM: 700,
     note: "High-density central Kolkata",
+    country: "IN",
   },
   {
     id: "banaras-ghats",
@@ -71,6 +78,7 @@ export const PLACES: Place[] = [
     lon: 83.0103,
     radiusM: 500,
     note: "Riverfront, flood-exposed",
+    country: "IN",
   },
 ];
 

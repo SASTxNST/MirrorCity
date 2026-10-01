@@ -224,3 +224,9 @@
 .live-reopen { position: absolute; left: 16px; top: 16px; z-index: 6; padding: 9px 13px; border: 1px solid #232323; background: rgba(10,10,10,.94); cursor: pointer; }
 
 @media (max-width: 1080px) { .live-panel, .live-reopen { display: none; } }
+.live-news { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px; background: #1c1c1c; border: 1px solid #1c1c1c; }
+.live-news li { padding: 8px 9px; background: #0a0a0a; display: flex; flex-direction: column; gap: 4px; }
+.live-news a { color: #d8d8d8; font-size: 10px; line-height: 1.45; letter-spacing: .02em; text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.live-news a:hover { color: #fff; text-decoration: underline; }
+.live-news span { display: flex; gap: 7px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; color: #525252; }
+.live-news u { text-decoration: none; margin-left: auto; }

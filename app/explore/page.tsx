@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import WorldEngine, { type WorldLayers } from "./WorldEngine";
 import LivePanel from "./LivePanel";
-import { parseOverpass, type OsmBuilding, type OsmScene } from "../../lib/osm";
+import type { OsmBuilding } from "../../lib/osm";
+import { useScene } from "./useScene";
 import { findPlace, PLACES } from "../../lib/places";
 import type { GeocodeResult } from "../api/geocode/route";
 
@@ -51,33 +52,24 @@ export default function ExplorePage() {
   );
   const radius = chosenRadius ?? start.radiusM;
   // The radius the scene was actually built at, so the slider can be moved
-  // without silently invalidating the stats beside it.
-  const [loadedRadius, setLoadedRadius] = useState(start.radiusM);
-
-  const [scene, setScene] = useState<OsmScene | null>(null);
-  const [status, setStatus] = useState<Status>({ state: "idle" });
   const [layers, setLayers] = useState<WorldLayers>(DEFAULT_LAYERS);
   const [selected, setSelected] = useState<OsmBuilding | null>(null);
   const [hovered, setHovered] = useState<OsmBuilding | null>(null);
   const [loadToken, setLoadToken] = useState(0);
 
-  const requestRef = useRef(0);
-  const [elapsed, setElapsed] = useState(0);
-
-
-  // Overpass queues requests behind other users, so a load can sit for tens of
-  // seconds through no fault of ours. Counting up says "waiting", not "stuck".
-  useEffect(() => {
-    if (status.state !== "loading") return;
-    const started = Date.now();
-    // Deferred so the reset does not cascade out of this effect's body.
-    const reset = setTimeout(() => setElapsed(0), 0);
-    const timer = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => {
-      clearTimeout(reset);
-      clearInterval(timer);
-    };
-  }, [status]);
+  const { scene, source, upgrading, detailError, baseError } = useScene(place.lat, place.lon, radius, loadToken);
+  const status: Status = useMemo(
+    () =>
+      baseError
+        ? { state: "error", message: baseError }
+        : scene
+          ? { state: "ready" }
+          : { state: "loading", message: "Loading base geometry…" },
+    [baseError, scene]
+  );
+  // The radius the scene on screen was actually built at, so the slider can be
+  // moved without silently invalidating the statistics beside it.
+  const loadedRadius = scene?.radiusM ?? start.radiusM;
 
   // Place search, debounced so a typed word costs one Nominatim call.
   useEffect(() => {
@@ -110,48 +102,6 @@ export default function ExplorePage() {
     };
   }, [query]);
 
-  // Load geography for the current place and radius.
-  useEffect(() => {
-    const token = ++requestRef.current;
-    const controller = new AbortController();
-
-    (async () => {
-      setStatus({ state: "loading", message: `Requesting OpenStreetMap geometry within ${formatMetres(radius)}…` });
-      setSelected(null);
-      setHovered(null);
-      try {
-        const response = await fetch(
-          `/api/osm?lat=${place.lat.toFixed(5)}&lon=${place.lon.toFixed(5)}&radius=${Math.round(radius)}`,
-          { signal: controller.signal }
-        );
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error ?? `Request failed (${response.status})`);
-        }
-        const payload = await response.json();
-        if (token !== requestRef.current) return;
-
-        setStatus({ state: "loading", message: "Building geometry…" });
-        const built = parseOverpass(payload, { lat: place.lat, lon: place.lon }, radius);
-        if (token !== requestRef.current) return;
-
-        if (built.buildings.length === 0 && built.roads.length === 0) {
-          setScene(built);
-          setLoadedRadius(radius);
-          setStatus({ state: "error", message: "OpenStreetMap has nothing mapped here yet. Try a wider radius or a nearby town." });
-          return;
-        }
-        setScene(built);
-        setLoadedRadius(radius);
-        setStatus({ state: "ready" });
-      } catch (error) {
-        if ((error as Error).name === "AbortError" || token !== requestRef.current) return;
-        setStatus({ state: "error", message: (error as Error).message });
-      }
-    })();
-
-    return () => controller.abort();
-  }, [place, radius, loadToken]);
 
   const stats = useMemo(() => {
     // Only describe geometry that is actually on screen — leaving the previous
@@ -305,24 +255,26 @@ export default function ExplorePage() {
 
           <p className="explore-attribution">
             Geometry © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors,
-            via Overpass API. Search by Nominatim.
+            via OpenFreeMap tiles and the Overpass API. Search by Nominatim.
           </p>
         </aside>
 
         <main className="explore-stage">
           <WorldEngine scene={scene} layers={layers} selectedId={selected?.id ?? null} onSelect={setSelected} onHover={setHovered} />
 
-          <LivePanel lat={place.lat} lon={place.lon} placeName={place.name} />
+          <LivePanel lat={place.lat} lon={place.lon} placeName={place.name} country={start.country} />
 
           {status.state === "loading" && (
             <div className="explore-overlay">
               <div className="explore-spinner" />
               <p>{status.message}</p>
-              {elapsed >= 6 && (
-                <p className="explore-overlay-wait">
-                  {elapsed}s — Overpass is a free shared service and queues requests at busy times.
-                </p>
-              )}
+            </div>
+          )}
+
+          {detailError && !upgrading && (
+            <div className="explore-detail-note">
+              Showing generalised tile geometry. Full detail is unavailable: {detailError}
+              <button type="button" onClick={() => setLoadToken((n) => n + 1)}>Retry</button>
             </div>
           )}
 
@@ -337,6 +289,11 @@ export default function ExplorePage() {
             <span><b>LAT</b> {place.lat.toFixed(5)}</span>
             <span><b>LON</b> {place.lon.toFixed(5)}</span>
             <span><b>RADIUS</b> {formatMetres(loadedRadius)}</span>
+            <span>
+              <b>SOURCE</b>{" "}
+              {source === "overpass" ? "FULL DETAIL" : source === "tiles" ? "TILES" : "—"}
+              {upgrading && <em className="explore-upgrading"> · loading detail</em>}
+            </span>
             <span className="explore-north">N ↑</span>
           </div>
 

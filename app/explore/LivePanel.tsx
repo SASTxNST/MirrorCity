@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { aqiBand, compass, type Aircraft, type AirReading, type Quake } from "../../lib/live";
+import type { NewsItem } from "../api/live/news/route";
 
-type Props = { lat: number; lon: number; placeName: string };
+type Props = { lat: number; lon: number; placeName: string; country?: string };
 
 // Each feed is polled at the rate it actually changes. OpenSky's anonymous
 // tier resolves to ten seconds; air quality is hourly; the USGS summary feed
 // is rebuilt every minute.
-const POLL_MS = { aircraft: 20_000, quakes: 180_000, air: 600_000 } as const;
+// GDELT reindexes every fifteen minutes and rate-limits hard, so news is
+// polled on exactly that cadence.
+const POLL_MS = { aircraft: 20_000, quakes: 180_000, air: 600_000, news: 900_000 } as const;
 
 // Half-width of the aircraft query box, and therefore the radius the scope
 // draws to. One degree is roughly 110 km.
@@ -109,7 +112,7 @@ function Scope({ aircraft, centre }: { aircraft: Aircraft[]; centre: { lat: numb
   );
 }
 
-export default function LivePanel({ lat, lon, placeName }: Props) {
+export default function LivePanel({ lat, lon, placeName, country }: Props) {
   const [open, setOpen] = useState(true);
   const query = `lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
 
@@ -119,12 +122,17 @@ export default function LivePanel({ lat, lon, placeName }: Props) {
     POLL_MS.aircraft
   );
   const seismic = useFeed<{ nearest: Quake[]; total: number }>(`/api/live/quakes?${query}`, POLL_MS.quakes);
+  const news = useFeed<{ items: NewsItem[]; stale?: boolean }>(
+    `/api/live/news?place=${encodeURIComponent(placeName)}${country ? `&country=${country}` : ""}`,
+    POLL_MS.news
+  );
 
   const reading = air.data?.reading ?? null;
   const band = aqiBand(reading?.usAqi ?? null);
   const aircraft = sky.data?.aircraft ?? [];
   const quakes = seismic.data?.nearest ?? [];
-  const anyLive = Boolean(reading || aircraft.length || quakes.length);
+  const stories = news.data?.items ?? [];
+  const anyLive = Boolean(reading || aircraft.length || quakes.length || stories.length);
 
   if (!open) {
     return (
@@ -211,8 +219,29 @@ export default function LivePanel({ lat, lon, placeName }: Props) {
         )}
       </section>
 
+      <section className="live-block">
+        <p className="live-label">News · {placeName}<em>{news.data?.stale ? "cached" : "72 h"}</em></p>
+        {news.error && stories.length === 0 ? (
+          <p className="live-note">{news.error}</p>
+        ) : stories.length === 0 ? (
+          <p className="live-note">Nothing indexed for this place yet.</p>
+        ) : (
+          <ul className="live-news">
+            {stories.slice(0, 5).map((story) => (
+              <li key={story.url}>
+                <a href={story.url} target="_blank" rel="noreferrer">{story.title}</a>
+                <span>
+                  {story.domain}
+                  {story.at && <u>{ago(Date.parse(story.at))}</u>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <footer className="live-foot">
-        OpenSky · USGS · Open-Meteo
+        OpenSky · USGS · Open-Meteo · GDELT
         {sky.at && <span>· synced {ago(sky.at)}</span>}
       </footer>
     </aside>
