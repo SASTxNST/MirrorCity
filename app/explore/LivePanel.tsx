@@ -56,6 +56,12 @@ function useFeed<T>(url: string | null, intervalMs: number): Feed<T> {
   return feed;
 }
 
+// A feed that errors still returns a body, but without its counts. Rendering
+// those straight into a template prints "undefined airborne".
+function count(value: unknown, noun: string): string | null {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString()} ${noun}` : null;
+}
+
 function km(metres: number): string {
   return metres >= 1000 ? `${(metres / 1000).toFixed(metres >= 100_000 ? 0 : 1)} km` : `${Math.round(metres)} m`;
 }
@@ -190,7 +196,7 @@ export default function LivePanel({ lat, lon, placeName, country, facilities }: 
 
       <section className="live-block">
         <p className="live-label">
-          Aircraft · {sky.data ? `${sky.data.airborne} airborne` : "—"}
+          Aircraft{count(sky.data?.airborne, "airborne") ? ` · ${count(sky.data?.airborne, "airborne")}` : ""}
           <em>110 km</em>
         </p>
         {sky.error && aircraft.length === 0 ? (
@@ -238,7 +244,7 @@ export default function LivePanel({ lat, lon, placeName, country, facilities }: 
                 </a>
               ))}
             </div>
-            <p className="live-note">{cams.data?.nearby ?? cameras.length} within 4 km</p>
+            <p className="live-note">{count(cams.data?.nearby ?? cameras.length, "within 4 km")}</p>
           </>
         )}
       </section>
@@ -265,7 +271,7 @@ export default function LivePanel({ lat, lon, placeName, country, facilities }: 
       <section className="live-block">
         <p className="live-label">
           Seismic · 24 h
-          {seismic.data && <em>{seismic.data.total} worldwide</em>}
+          {count(seismic.data?.total, "worldwide") && <em>{count(seismic.data?.total, "worldwide")}</em>}
         </p>
         {seismic.error && quakes.length === 0 ? (
           <p className="live-note">{seismic.error}</p>
