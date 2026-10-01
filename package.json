@@ -11,6 +11,7 @@
     "prebuild": "node scripts/vendor-pyodide.mjs",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
+    "pretest": "node scripts/vendor-pyodide.mjs",
     "test": "npm run build:workers && node --experimental-strip-types --no-warnings --test tests/rendered-html.test.mjs tests/sewer-network.test.mjs tests/flood-drains.test.mjs tests/evacuation.test.mjs tests/grid-packages.test.mjs tests/osm.test.mjs tests/live.test.mjs tests/tiles.test.mjs tests/cameras.test.mjs tests/facilities.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
