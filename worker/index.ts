@@ -1,6 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { setPlatformEnv } from "../lib/platform";
 
 // Binding types written out here: vinext 1.0 no longer pulls in the global
 // Workers types (and loading them globally changes fetch typings app-wide).
@@ -29,6 +30,9 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Publish the bindings for the route handlers, which cannot import
+    // "cloudflare:workers" without breaking the Vercel build.
+    setPlatformEnv(env as unknown as Record<string, unknown>);
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {

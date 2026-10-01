@@ -7,17 +7,18 @@
   },
   "scripts": {
     "predev": "node scripts/vendor-pyodide.mjs",
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --port 3000",
+    "dev": "vinext dev --port 3000",
     "prebuild": "node scripts/vendor-pyodide.mjs",
-    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
-    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --experimental-strip-types --no-warnings --test tests/rendered-html.test.mjs tests/sewer-network.test.mjs tests/flood-drains.test.mjs tests/evacuation.test.mjs tests/grid-packages.test.mjs tests/osm.test.mjs tests/live.test.mjs tests/tiles.test.mjs tests/cameras.test.mjs tests/facilities.test.mjs",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs",
+    "test": "npm run build:workers && node --experimental-strip-types --no-warnings --test tests/rendered-html.test.mjs tests/sewer-network.test.mjs tests/flood-drains.test.mjs tests/evacuation.test.mjs tests/grid-packages.test.mjs tests/osm.test.mjs tests/live.test.mjs tests/tiles.test.mjs tests/cameras.test.mjs tests/facilities.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "node scripts/db-migrate-local.mjs",
     "flood:test": "python3 -m scripts.flood.validation",
     "flood:run": "python3 -m scripts.flood.run_simulation",
-    "grid:test": "python3 -m scripts.grid.validation"
+    "grid:test": "python3 -m scripts.grid.validation",
+    "build:workers": "WRANGLER_LOG_PATH=.wrangler/wrangler.log BUILD_TARGET=workers vinext build"
   },
   "dependencies": {
     "@clerk/backend": "^3.21.1",
@@ -25,6 +26,7 @@
     "@mapbox/vector-tile": "^3.0.0",
     "3d-tiles-renderer": "0.5.3",
     "drizzle-orm": "0.45.2",
+    "nitro": "^3.0.260903-beta",
     "pbf": "^5.1.2",
     "pyodide": "314.0.7",
     "react": "19.3.0",

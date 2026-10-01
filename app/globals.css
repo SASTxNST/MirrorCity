@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* The package path is spelled out because the Nitro build runs PostCSS's
+   import resolver, which treats a bare specifier as a file path. */
+@import "tailwindcss/index.css";
 @import "./console.css";
 
 :root {

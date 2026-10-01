@@ -13,6 +13,10 @@ const eslintConfig = defineConfig([
     "dist/**",
     "out/**",
     "build/**",
+    // Nitro build output: .output for the node preset, .vercel for Vercel's
+    // Build Output API.
+    ".output/**",
+    ".vercel/**",
     "next-env.d.ts",
     // Pyodide runtime copied by scripts/vendor-pyodide.mjs.
     "public/pyodide/**",

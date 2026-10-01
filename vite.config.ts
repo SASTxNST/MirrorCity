@@ -1,4 +1,5 @@
 import vinext from "vinext";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
@@ -40,8 +41,20 @@ export default defineConfig(async ({ command }) => {
   process.env.WRANGLER_LOG_PATH ??= ".wrangler/logs";
   process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
 
-  // Wrangler snapshots its log path while the Cloudflare plugin is imported.
-  const { cloudflare } = await import("@cloudflare/vite-plugin");
+  // Production builds target Vercel through Nitro. Two cases still use the
+  // Cloudflare plugin:
+  //
+  //  - `serve`, because the dev server needs a local D1 binding for the
+  //    saved-workspace routes, and because vinext's dev server currently fails
+  //    on next/navigation's CommonJS interop under Nitro. Production output is
+  //    verified separately by building and running it.
+  //  - BUILD_TARGET=workers, which the test suite uses: the database-backed
+  //    API routes can only be exercised against workerd with a real D1.
+  const useCloudflare = command === "serve" || process.env.BUILD_TARGET === "workers";
+
+  // Wrangler snapshots its log path while the Cloudflare plugin is imported,
+  // so it is only imported when it will actually be used.
+  const { cloudflare } = useCloudflare ? await import("@cloudflare/vite-plugin") : { cloudflare: null };
 
   return {
     server: isCodexSeatbeltSandbox
@@ -56,12 +69,17 @@ export default defineConfig(async ({ command }) => {
     plugins: [
       vinext(),
       sites(),
-      cloudflare({
-        viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        // hosting.json ships with the build, so local dev gets its own `DB`
-        // binding here rather than there; build output stays unchanged.
-        config: localBindingConfig(command === "serve" ? (d1 ?? "DB") : d1),
-      }),
+      ...(useCloudflare && cloudflare
+        ? [
+            cloudflare({
+              viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
+              // hosting.json ships with the build, so local dev gets its own
+              // `DB` binding here rather than there; build output stays
+              // unchanged.
+              config: localBindingConfig(command === "serve" ? (d1 ?? "DB") : d1),
+            }),
+          ]
+        : [nitro()]),
     ],
   };
 });

@@ -5,8 +5,8 @@
 // no owner (pre-Phase-3 rows, or the single-session local-dev fallback) stay
 // open to anyone, so existing anonymous/local-dev workflows keep working.
 
-import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
+import { secret } from "../../lib/platform";
 import { getDb } from "../../db";
 import { sessions } from "../../db/schema";
 
@@ -54,7 +54,7 @@ export async function requireOwnedSession(request: Request, sessionId: number): 
 // Room/sensor configuration is admin-only: callers must send
 // `Authorization: Bearer <ROOM_ADMIN_TOKEN>`. Fails closed if the secret isn't set.
 export function requireAdmin(request: Request): Response | null {
-  const expected: string | undefined = env.ROOM_ADMIN_TOKEN;
+  const expected: string | undefined = secret("ROOM_ADMIN_TOKEN");
   const given = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
   const enc = new TextEncoder();
   const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean };

@@ -35,8 +35,9 @@ yarn-error.log*
 !.env.example
 !.dev.vars.example
 
-# vercel
+# vercel / nitro build output
 .vercel
+.output
 
 /dist/
 /.wrangler/
